@@ -30,15 +30,12 @@ dependencies {
 	runtimeOnly    'io.jsonwebtoken:jjwt-impl:0.12.3'
 	runtimeOnly    'io.jsonwebtoken:jjwt-jackson:0.12.3'
 	implementation 'com.github.wendykierp:JTransforms:3.1'
-	// Spotify full audio streaming via librespot protocol (Premium required)
-	implementation 'com.github.librespot-org.librespot-java:librespot-lib:v1.6.3'
-	// OGG Vorbis SPI — lets javax.sound.sampled decode librespot's OGG output
-	implementation 'com.googlecode.soundlibs:vorbisspi:1.0.3.3'
+	// Full audio streaming is handled by the librespot-service Go microservice.
+	// See librespot-service/ directory.
 	implementation 'com.google.cloud:google-cloud-storage:2.47.0'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jdbc'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
-	implementation 'org.springframework.boot:spring-boot-starter-session-jdbc'
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	compileOnly 'org.projectlombok:lombok'

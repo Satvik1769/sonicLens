@@ -1,99 +1,73 @@
 package com.example.sonicLens.integration.spotify;
 
-import com.example.sonicLens.config.SpotifyConfig;
-import com.spotify.metadata.Metadata;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import xyz.gianlu.librespot.audio.PlayableContentFeeder;
-import xyz.gianlu.librespot.audio.format.AudioQualityPicker;
-import xyz.gianlu.librespot.audio.format.SuperAudioFormat;
-import xyz.gianlu.librespot.core.Session;
-import xyz.gianlu.librespot.metadata.TrackId;
 
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 @Service
 @Slf4j
 public class SpotifyFullAudioService {
 
-    private final SpotifyConfig config;
-    private Session session;
-
-    // Picks the highest-quality Vorbis (OGG) file available
-    private static final AudioQualityPicker VORBIS_HIGH = files -> {
-        Metadata.AudioFile best = null;
-        for (Metadata.AudioFile f : files) {
-            if (SuperAudioFormat.get(f.getFormat()) == SuperAudioFormat.VORBIS) {
-                if (best == null || f.getFormat().getNumber() > best.getFormat().getNumber()) {
-                    best = f;
-                }
-            }
-        }
-        return best;
-    };
-
-    public SpotifyFullAudioService(SpotifyConfig config) {
-        this.config = config;
-    }
+    @Value("${librespot.service.url:http://localhost:8888}")
+    private String serviceUrl;
 
     @PostConstruct
     public void init() {
-        String username = config.getPremium().getUsername();
-        if (username == null || username.isBlank() || username.startsWith("your_")) {
-            log.warn("Spotify Premium credentials not configured — full audio download disabled. " +
-                     "Set spotify.premium.username and spotify.premium.password in application.properties.");
-            return;
+        if (isReady()) {
+            log.info("librespot Go service is ready at {}", serviceUrl);
+        } else {
+            log.warn("librespot Go service is not ready at {}. Ensure librespot-service is running.", serviceUrl);
         }
+    }
+
+    public boolean isReady() {
         try {
-            connect();
-            log.info("librespot session established for: {}", username);
+            HttpURLConnection conn = openConnection("/status", "GET");
+            conn.setConnectTimeout(3_000);
+            conn.setReadTimeout(3_000);
+            if (conn.getResponseCode() != 200) return false;
+            String body = new String(conn.getInputStream().readAllBytes());
+            return body.contains("\"ready\":true");
         } catch (Exception e) {
-            log.error("Failed to initialize librespot session: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    public void reconnect() throws Exception {
+        HttpURLConnection conn = openConnection("/reconnect", "POST");
+        conn.setConnectTimeout(5_000);
+        conn.setReadTimeout(5_000);
+        int status = conn.getResponseCode();
+        if (status != 202) {
+            throw new RuntimeException("librespot reconnect returned HTTP " + status);
         }
     }
 
     /**
-     * Opens a streaming OGG Vorbis InputStream for the full track directly from Spotify.
+     * Returns a WAV InputStream for the given Spotify base62 track ID.
      * The caller is responsible for closing the stream.
-     * Retries once with a fresh session if the first attempt fails.
      */
     public InputStream streamTrack(String spotifyTrackId) throws Exception {
-        if (session == null) {
-            throw new IllegalStateException(
-                    "Spotify Premium credentials are not configured. " +
-                    "Set spotify.premium.username / spotify.premium.password.");
+        HttpURLConnection conn = openConnection("/stream/" + spotifyTrackId, "GET");
+        conn.setConnectTimeout(10_000);
+        conn.setReadTimeout(300_000); // full track may take time to buffer
+        int status = conn.getResponseCode();
+        if (status != 200) {
+            String body = new String(conn.getErrorStream().readAllBytes());
+            throw new RuntimeException("librespot service returned HTTP " + status + ": " + body);
         }
-        try {
-            return openStream(spotifyTrackId);
-        } catch (Exception e) {
-            log.warn("librespot stream failed ({}), reconnecting and retrying...", e.getMessage());
-            connect();
-            return openStream(spotifyTrackId);
-        }
+        return conn.getInputStream();
     }
 
-    private InputStream openStream(String spotifyTrackId) throws Exception {
-        TrackId trackId = TrackId.fromBase62(spotifyTrackId);
-
-        PlayableContentFeeder.LoadedStream stream = session.contentFeeder().load(
-                trackId,
-                VORBIS_HIGH,
-                true,
-                null
-        );
-
-        return stream.in.stream();
-    }
-
-    private synchronized void connect() throws Exception {
-        Session.Configuration conf = new Session.Configuration.Builder()
-                .setStoreCredentials(false)
-                .setCacheEnabled(false)
-                .build();
-
-        session = new Session.Builder(conf)
-                .userPass(config.getPremium().getUsername(), config.getPremium().getPassword())
-                .create();
+    private HttpURLConnection openConnection(String path, String method) throws Exception {
+        URL url = new URL(serviceUrl + path);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod(method);
+        return conn;
     }
 }
