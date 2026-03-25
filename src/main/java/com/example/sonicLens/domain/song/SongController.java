@@ -67,6 +67,24 @@ public class SongController {
         return songService.uploadSong(file, title, artist);
     }
 
+    /**
+     * Bulk-seed the catalog from Spotify's catalog.
+     * Strategies:
+     *   FEATURED_PLAYLISTS — pulls Spotify's featured playlists (limit = number of playlists)
+     *   NEW_RELEASES       — pulls new album releases     (limit = number of albums)
+     *   SEARCH             — free-text search             (limit = number of tracks, query required)
+     *
+     * Examples:
+     *   { "strategy": "FEATURED_PLAYLISTS", "limit": 5 }
+     *   { "strategy": "NEW_RELEASES", "limit": 10 }
+     *   { "strategy": "SEARCH", "query": "pop hits 2024", "limit": 50 }
+     */
+    @PostMapping("/seed")
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<Song> seed(@RequestBody SeedRequest req) throws Exception {
+        return songService.seedFromSpotify(req.strategy(), req.limit(), req.query());
+    }
+
     @GetMapping
     public List<Song> list() {
         return songService.listAll();
@@ -79,4 +97,5 @@ public class SongController {
 
     public record AddFromSpotifyRequest(String spotifyTrackId) {}
     public record AddFromUrlRequest(String url) {}
+    public record SeedRequest(SongService.SeedStrategy strategy, int limit, String query) {}
 }

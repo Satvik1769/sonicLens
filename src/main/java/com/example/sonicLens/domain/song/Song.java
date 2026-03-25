@@ -27,6 +27,9 @@ public class Song {
     @Column(name = "file_path")
     private String filePath;
 
+    @Column(name = "gcs_url")
+    private String gcsUrl;
+
     @Column(name = "spotify_track_id", length = 100)
     private String spotifyTrackId;
 

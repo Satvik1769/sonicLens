@@ -168,10 +168,10 @@ public class SpotifySearchClient {
     public SpotifyUrlParsed parseSpotifyUrl(String url) {
         String trimmed = url.trim();
 
-        // Spotify URI: spotify:track:xxx or spotify:album:xxx
+        // Spotify URI: spotify:track:xxx, spotify:album:xxx, spotify:playlist:xxx
         if (trimmed.startsWith("spotify:")) {
             String[] parts = trimmed.split(":");
-            if (parts.length >= 3 && (parts[1].equals("track") || parts[1].equals("album"))) {
+            if (parts.length >= 3 && (parts[1].equals("track") || parts[1].equals("album") || parts[1].equals("playlist"))) {
                 return new SpotifyUrlParsed(parts[1], parts[2]);
             }
         }
@@ -180,19 +180,120 @@ public class SpotifySearchClient {
         try {
             java.net.URI uri = java.net.URI.create(trimmed);
             String[] segments = uri.getPath().split("/");
-            // segments: ["", "track"/"album", "{id}"]
+            // segments: ["", "track"/"album"/"playlist", "{id}"]
             if (segments.length >= 3) {
                 String type = segments[1];
                 String id   = segments[2];
-                if ((type.equals("track") || type.equals("album")) && !id.isBlank()) {
+                if ((type.equals("track") || type.equals("album") || type.equals("playlist"))
+                        && !id.isBlank()) {
                     return new SpotifyUrlParsed(type, id);
                 }
             }
         } catch (Exception ignored) {}
 
         throw new IllegalArgumentException(
-                "Invalid Spotify URL. Provide a track or album link, e.g. " +
-                "https://open.spotify.com/track/{id} or https://open.spotify.com/album/{id}");
+                "Invalid Spotify URL. Provide a track, album, or playlist link, e.g. " +
+                "https://open.spotify.com/track/{id}, https://open.spotify.com/album/{id}, " +
+                "or https://open.spotify.com/playlist/{id}");
+    }
+
+    // -------------------------------------------------------------------------
+    // Fetch all tracks from a Spotify playlist (handles pagination, 100/page)
+    // -------------------------------------------------------------------------
+
+    public List<SpotifyTrackDto> getPlaylistTracks(String playlistId) {
+        try {
+            List<SpotifyTrackDto> allTracks = new ArrayList<>();
+            int offset = 0;
+            final int limit = 100;
+
+            while (true) {
+                ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                        "https://api.spotify.com/v1/playlists/{id}/tracks?limit={limit}&offset={offset}",
+                        HttpMethod.GET,
+                        authHeaders(),
+                        MAP_TYPE,
+                        playlistId, limit, offset
+                );
+                Map<String, Object> body = response.getBody();
+                if (body == null) break;
+
+                List<Map<String, Object>> items = asList(body.get("items"));
+                if (items == null || items.isEmpty()) break;
+
+                for (Map<String, Object> item : items) {
+                    // Playlist items wrap the real track under "track" key
+                    Map<String, Object> track = asMap(item.get("track"));
+                    if (track == null || track.get("id") == null) continue; // local files have no id
+                    toDto(track).ifPresent(allTracks::add);
+                }
+
+                offset += items.size();
+                if (body.get("next") == null) break;
+            }
+
+            return allTracks;
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Returns playlist IDs from Spotify's featured playlists
+    // -------------------------------------------------------------------------
+
+    public List<String> getFeaturedPlaylistIds(int limit) {
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    "https://api.spotify.com/v1/browse/featured-playlists?limit={limit}",
+                    HttpMethod.GET,
+                    authHeaders(),
+                    MAP_TYPE,
+                    limit
+            );
+            Map<String, Object> body = response.getBody();
+            if (body == null) return List.of();
+
+            Map<String, Object> playlists = asMap(body.get("playlists"));
+            List<Map<String, Object>> items = playlists != null ? asList(playlists.get("items")) : null;
+            if (items == null) return List.of();
+
+            return items.stream()
+                    .map(p -> (String) p.get("id"))
+                    .filter(id -> id != null)
+                    .toList();
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Returns album IDs from Spotify's new releases
+    // -------------------------------------------------------------------------
+
+    public List<String> getNewReleaseAlbumIds(int limit) {
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    "https://api.spotify.com/v1/browse/new-releases?limit={limit}",
+                    HttpMethod.GET,
+                    authHeaders(),
+                    MAP_TYPE,
+                    limit
+            );
+            Map<String, Object> body = response.getBody();
+            if (body == null) return List.of();
+
+            Map<String, Object> albums = asMap(body.get("albums"));
+            List<Map<String, Object>> items = albums != null ? asList(albums.get("items")) : null;
+            if (items == null) return List.of();
+
+            return items.stream()
+                    .map(a -> (String) a.get("id"))
+                    .filter(id -> id != null)
+                    .toList();
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
     // -------------------------------------------------------------------------
