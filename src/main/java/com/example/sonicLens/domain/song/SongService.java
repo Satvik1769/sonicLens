@@ -26,19 +26,79 @@ public class SongService {
     private final SpotifySearchClient spotifySearchClient;
     private final GcsStorageService gcsStorageService;
 
+    // -------------------------------------------------------------------------
+    // Add a song directly from Spotify (no file upload needed)
+    // Downloads the 30s preview, fingerprints it, stores metadata.
+    // -------------------------------------------------------------------------
+
+    @Transactional
+    public Song addFromSpotify(String spotifyTrackId) throws Exception {
+        // Prevent duplicate entries
+        songRepository.findBySpotifyTrackId(spotifyTrackId).ifPresent(existing -> {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Song already in catalog: " + existing.getTitle());
+        });
+
+        SpotifyTrackDto dto = spotifySearchClient.getTrack(spotifyTrackId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Spotify track not found: " + spotifyTrackId));
+
+        if (dto.previewUrl() == null) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "This track has no 30s preview available on Spotify");
+        }
+
+        // Download the 30s preview MP3
+        byte[] previewBytes = spotifySearchClient.downloadPreview(dto.previewUrl());
+
+        // Upload preview to GCS for later playback reference
+        String objectName = "audio/spotify_" + spotifyTrackId + ".mp3";
+        gcsStorageService.upload(previewBytes, objectName, "audio/mpeg");
+
+        // Save song record
+        Song song = Song.builder()
+                .title(dto.name())
+                .artist(dto.artistName())
+                .album(dto.albumName())
+                .albumArtUrl(dto.albumArtUrl())
+                .spotifyTrackId(dto.spotifyId())
+                .spotifyPreviewUrl(dto.previewUrl())
+                .durationMs(dto.durationMs())
+                .filePath(objectName)
+                .build();
+        song = songRepository.save(song);
+
+        // Fingerprint the 30s preview
+        try (ByteArrayInputStream audioIn = new ByteArrayInputStream(previewBytes)) {
+            fingerprintService.fingerprintSong(song, audioIn);
+        }
+
+        return song;
+    }
+
+    // -------------------------------------------------------------------------
+    // Search Spotify catalog (returns candidates for the user to pick from)
+    // -------------------------------------------------------------------------
+
+    public List<SpotifyTrackDto> searchSpotify(String query) {
+        return spotifySearchClient.searchTracks(query, 10);
+    }
+
+    // -------------------------------------------------------------------------
+    // Manual upload (custom/local audio files)
+    // -------------------------------------------------------------------------
+
     @Transactional
     public Song uploadSong(MultipartFile file, String title, String artist) throws Exception {
-        // 1. Read bytes once — used for both GCS upload and fingerprinting
         byte[] audioBytes = file.getBytes();
         String filename = UUID.randomUUID() + "_" +
-                StringUtils.cleanPath(file.getOriginalFilename() != null ? file.getOriginalFilename() : "audio.wav");
+                StringUtils.cleanPath(file.getOriginalFilename() != null
+                        ? file.getOriginalFilename() : "audio.wav");
         String objectName = "audio/" + filename;
 
-        // 2. Upload to GCS
         String contentType = file.getContentType() != null ? file.getContentType() : "audio/wav";
         gcsStorageService.upload(audioBytes, objectName, contentType);
 
-        // 3. Save song record with GCS object name as filePath
         Song song = Song.builder()
                 .title(title)
                 .artist(artist)
@@ -46,12 +106,11 @@ public class SongService {
                 .build();
         song = songRepository.save(song);
 
-        // 4. Generate and store fingerprints (from in-memory bytes — no GCS download needed)
         try (ByteArrayInputStream audioIn = new ByteArrayInputStream(audioBytes)) {
             fingerprintService.fingerprintSong(song, audioIn);
         }
 
-        // 5. Enrich with Spotify metadata (best-effort)
+        // Try to enrich with Spotify metadata
         Optional<SpotifyTrackDto> spotifyData = spotifySearchClient.searchTrack(title, artist);
         if (spotifyData.isPresent()) {
             SpotifyTrackDto dto = spotifyData.get();

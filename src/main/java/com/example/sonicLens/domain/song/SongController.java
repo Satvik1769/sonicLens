@@ -1,5 +1,6 @@
 package com.example.sonicLens.domain.song;
 
+import com.example.sonicLens.integration.spotify.SpotifyTrackDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -15,6 +16,31 @@ public class SongController {
 
     private final SongService songService;
 
+    /**
+     * Add a song to the catalog by Spotify track ID.
+     * Downloads the 30s preview, fingerprints it, stores metadata.
+     * Body: { "spotifyTrackId": "3n3Ppam7vgaVa1iaRUIOKE" }
+     */
+    @PostMapping("/add")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Song addFromSpotify(@RequestBody AddFromSpotifyRequest req) throws Exception {
+        return songService.addFromSpotify(req.spotifyTrackId());
+    }
+
+    /**
+     * Search the Spotify catalog. Returns up to 10 candidates.
+     * Use the spotifyTrackId from results to call POST /songs/add.
+     * Example: GET /songs/search?q=Bohemian+Rhapsody+Queen
+     */
+    @GetMapping("/search")
+    public List<SpotifyTrackDto> search(@RequestParam String q) {
+        return songService.searchSpotify(q);
+    }
+
+    /**
+     * Manual upload of a local audio file (WAV/MP3).
+     * Use when the track isn't on Spotify or has no preview.
+     */
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public Song upload(@RequestPart("file") MultipartFile file,
@@ -32,4 +58,6 @@ public class SongController {
     public Song get(@PathVariable Long id) {
         return songService.getById(id);
     }
+
+    public record AddFromSpotifyRequest(String spotifyTrackId) {}
 }
