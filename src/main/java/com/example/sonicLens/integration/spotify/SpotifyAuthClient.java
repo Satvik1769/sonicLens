@@ -7,6 +7,9 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
@@ -44,7 +47,10 @@ public class SpotifyAuthClient {
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
         headers.set("Authorization", "Basic " + credentials);
 
-        HttpEntity<String> request = new HttpEntity<>("grant_type=client_credentials", headers);
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("grant_type", "client_credentials");
+
+        HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(form, headers);
 
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                 "https://accounts.spotify.com/api/token",

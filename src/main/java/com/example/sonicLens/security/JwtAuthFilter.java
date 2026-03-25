@@ -33,7 +33,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        String token = header.substring(7);
+        String token = header.substring(7).trim();
         if (jwtUtil.isTokenValid(token)) {
             String email = jwtUtil.extractEmail(token);
             UserDetails details = userDetailsService.loadUserByUsername(email);
@@ -41,6 +41,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities());
             auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(auth);
+        } else {
+            System.err.println("[JWT] Token invalid for request: " + request.getMethod() + " " + request.getRequestURI());
+            System.err.println("[JWT] Token prefix: " + token.substring(0, Math.min(20, token.length())));
         }
 
         chain.doFilter(request, response);

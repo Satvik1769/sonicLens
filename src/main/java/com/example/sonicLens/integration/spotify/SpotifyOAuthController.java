@@ -11,6 +11,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+
 import java.net.URI;
 import java.security.Principal;
 import java.time.Instant;
@@ -74,11 +77,12 @@ public class SpotifyOAuthController {
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
         headers.set("Authorization", "Basic " + credentials);
 
-        String body = "grant_type=authorization_code"
-                + "&code=" + code
-                + "&redirect_uri=" + config.getRedirectUri();
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("grant_type", "authorization_code");
+        form.add("code", code);
+        form.add("redirect_uri", config.getRedirectUri());
 
-        HttpEntity<String> request = new HttpEntity<>(body, headers);
+        HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(form, headers);
 
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                 "https://accounts.spotify.com/api/token",
@@ -135,8 +139,11 @@ public class SpotifyOAuthController {
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
         headers.set("Authorization", "Basic " + credentials);
 
-        String body = "grant_type=refresh_token&refresh_token=" + user.getSpotifyRefreshToken();
-        HttpEntity<String> request = new HttpEntity<>(body, headers);
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("grant_type", "refresh_token");
+        form.add("refresh_token", user.getSpotifyRefreshToken());
+
+        HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(form, headers);
 
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                 "https://accounts.spotify.com/api/token",
