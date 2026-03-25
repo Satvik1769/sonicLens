@@ -7,5 +7,13 @@ public record SpotifyTrackDto(
         String albumName,
         String albumArtUrl,
         String previewUrl,
-        Integer durationMs
+        Integer durationMs,
+        String spotifyUrl,
+        Integer trackNumber,
+        Integer discNumber,
+        Boolean explicit,
+        String isrc,
+        String albumSpotifyId,
+        String albumType,
+        String releaseDate
 ) {}

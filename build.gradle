@@ -21,6 +21,7 @@ configurations {
 
 repositories {
 	mavenCentral()
+	maven { url 'https://jitpack.io' }
 }
 
 dependencies {
@@ -29,6 +30,10 @@ dependencies {
 	runtimeOnly    'io.jsonwebtoken:jjwt-impl:0.12.3'
 	runtimeOnly    'io.jsonwebtoken:jjwt-jackson:0.12.3'
 	implementation 'com.github.wendykierp:JTransforms:3.1'
+	// Spotify full audio streaming via librespot protocol (Premium required)
+	implementation 'com.github.librespot-org.librespot-java:librespot-lib:v1.6.3'
+	// OGG Vorbis SPI — lets javax.sound.sampled decode librespot's OGG output
+	implementation 'com.googlecode.soundlibs:vorbisspi:1.0.3.3'
 	implementation 'com.google.cloud:google-cloud-storage:2.47.0'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jdbc'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'

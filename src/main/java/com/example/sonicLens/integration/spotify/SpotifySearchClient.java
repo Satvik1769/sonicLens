@@ -101,7 +101,9 @@ public class SpotifySearchClient {
             Map<String, Object> albumBody = albumResponse.getBody();
             if (albumBody == null) return List.of();
 
-            String albumName = (String) albumBody.get("name");
+            String albumName      = (String) albumBody.get("name");
+            String albumType      = (String) albumBody.get("album_type");
+            String releaseDate    = (String) albumBody.get("release_date");
             List<Map<String, Object>> albumImages = asList(albumBody.get("images"));
             String albumArtUrl = (albumImages != null && !albumImages.isEmpty())
                     ? (String) albumImages.get(0).get("url") : null;
@@ -131,14 +133,25 @@ public class SpotifySearchClient {
                         String artistName = (artists != null && !artists.isEmpty())
                                 ? (String) artists.get(0).get("name") : null;
 
+                        Map<String, Object> externalUrls = asMap(track.get("external_urls"));
+                        String spotifyUrl = externalUrls != null ? (String) externalUrls.get("spotify") : null;
+
                         allTracks.add(new SpotifyTrackDto(
-                                (String) track.get("id"),
-                                (String) track.get("name"),
+                                (String)  track.get("id"),
+                                (String)  track.get("name"),
                                 artistName,
                                 albumName,
                                 albumArtUrl,
-                                (String) track.get("preview_url"),
-                                (Integer) track.get("duration_ms")
+                                (String)  track.get("preview_url"),
+                                (Integer) track.get("duration_ms"),
+                                spotifyUrl,
+                                (Integer) track.get("track_number"),
+                                (Integer) track.get("disc_number"),
+                                (Boolean) track.get("explicit"),
+                                null,          // isrc not available in simplified album track objects
+                                albumId,
+                                albumType,
+                                releaseDate
                         ));
                     } catch (Exception ignored) {}
                 }
@@ -326,25 +339,46 @@ public class SpotifySearchClient {
 
     private Optional<SpotifyTrackDto> toDto(Map<String, Object> track) {
         try {
+            // Artists
             List<Map<String, Object>> artists = asList(track.get("artists"));
             String artistName = (artists != null && !artists.isEmpty())
                     ? (String) artists.get(0).get("name") : null;
 
+            // Album
             Map<String, Object> album = asMap(track.get("album"));
-            String albumName = album != null ? (String) album.get("name") : null;
+            String albumName       = album != null ? (String)  album.get("name")         : null;
+            String albumSpotifyId  = album != null ? (String)  album.get("id")           : null;
+            String albumType       = album != null ? (String)  album.get("album_type")   : null;
+            String releaseDate     = album != null ? (String)  album.get("release_date") : null;
 
             List<Map<String, Object>> images = album != null ? asList(album.get("images")) : null;
             String albumArtUrl = (images != null && !images.isEmpty())
                     ? (String) images.get(0).get("url") : null;
 
+            // Track external URL
+            Map<String, Object> externalUrls = asMap(track.get("external_urls"));
+            String spotifyUrl = externalUrls != null ? (String) externalUrls.get("spotify") : null;
+
+            // ISRC
+            Map<String, Object> externalIds = asMap(track.get("external_ids"));
+            String isrc = externalIds != null ? (String) externalIds.get("isrc") : null;
+
             return Optional.of(new SpotifyTrackDto(
-                    (String) track.get("id"),
-                    (String) track.get("name"),
+                    (String)  track.get("id"),
+                    (String)  track.get("name"),
                     artistName,
                     albumName,
                     albumArtUrl,
-                    (String) track.get("preview_url"),
-                    (Integer) track.get("duration_ms")
+                    (String)  track.get("preview_url"),
+                    (Integer) track.get("duration_ms"),
+                    spotifyUrl,
+                    (Integer) track.get("track_number"),
+                    (Integer) track.get("disc_number"),
+                    (Boolean) track.get("explicit"),
+                    isrc,
+                    albumSpotifyId,
+                    albumType,
+                    releaseDate
             ));
         } catch (Exception e) {
             return Optional.empty();

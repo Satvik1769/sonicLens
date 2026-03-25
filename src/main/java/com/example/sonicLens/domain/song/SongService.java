@@ -1,22 +1,21 @@
 package com.example.sonicLens.domain.song;
 
 import com.example.sonicLens.domain.fingerprint.FingerprintService;
+import com.example.sonicLens.integration.spotify.SpotifyFullAudioService;
 import com.example.sonicLens.integration.spotify.SpotifySearchClient;
 import com.example.sonicLens.integration.spotify.SpotifyTrackDto;
-import com.example.sonicLens.storage.GcsStorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -25,7 +24,7 @@ public class SongService {
     private final SongRepository songRepository;
     private final FingerprintService fingerprintService;
     private final SpotifySearchClient spotifySearchClient;
-    private final GcsStorageService gcsStorageService;
+    private final SpotifyFullAudioService spotifyFullAudioService;
 
     // -------------------------------------------------------------------------
     // Add a song directly from Spotify (no file upload needed)
@@ -44,20 +43,8 @@ public class SongService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Spotify track not found: " + spotifyTrackId));
 
-        if (dto.previewUrl() == null) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                    "This track has no 30s preview available on Spotify");
-        }
-
-        // Download the 30s preview MP3
-        byte[] previewBytes = spotifySearchClient.downloadPreview(dto.previewUrl());
-
-        // Upload preview to GCS for later playback reference
-        String objectName = "audio/spotify_" + spotifyTrackId + ".mp3";
-        gcsStorageService.upload(previewBytes, objectName, "audio/mpeg");
-        String gcsUrl = gcsStorageService.publicUrl(objectName);
-
-        // Save song record
+        // Save song record first (fingerprinting references the song ID)
+        // Audio lives on Spotify — no need to store it in GCS
         Song song = Song.builder()
                 .title(dto.name())
                 .artist(dto.artistName())
@@ -65,15 +52,21 @@ public class SongService {
                 .albumArtUrl(dto.albumArtUrl())
                 .spotifyTrackId(dto.spotifyId())
                 .spotifyPreviewUrl(dto.previewUrl())
+                .spotifyUrl(dto.spotifyUrl())
                 .durationMs(dto.durationMs())
-                .filePath(objectName)
-                .gcsUrl(gcsUrl)
+                .trackNumber(dto.trackNumber())
+                .discNumber(dto.discNumber())
+                .explicit(dto.explicit())
+                .isrc(dto.isrc())
+                .albumSpotifyId(dto.albumSpotifyId())
+                .albumType(dto.albumType())
+                .releaseDate(dto.releaseDate())
                 .build();
         song = songRepository.save(song);
 
-        // Fingerprint the 30s preview
-        try (ByteArrayInputStream audioIn = new ByteArrayInputStream(previewBytes)) {
-            fingerprintService.fingerprintSong(song, audioIn);
+        // Stream directly from Spotify into the fingerprinter — no buffering, no GCS upload
+        try (InputStream audioStream = spotifyFullAudioService.streamTrack(spotifyTrackId)) {
+            fingerprintService.fingerprintSong(song, audioStream);
         }
 
         return song;
@@ -163,7 +156,6 @@ public class SongService {
                 result.add(existing.get());
                 continue;
             }
-            if (dto.previewUrl() == null) continue;
             try {
                 result.add(addFromSpotify(dto.spotifyId()));
             } catch (ResponseStatusException e) {
@@ -190,20 +182,10 @@ public class SongService {
     @Transactional
     public Song uploadSong(MultipartFile file, String title, String artist) throws Exception {
         byte[] audioBytes = file.getBytes();
-        String filename = UUID.randomUUID() + "_" +
-                StringUtils.cleanPath(file.getOriginalFilename() != null
-                        ? file.getOriginalFilename() : "audio.wav");
-        String objectName = "audio/" + filename;
-
-        String contentType = file.getContentType() != null ? file.getContentType() : "audio/wav";
-        gcsStorageService.upload(audioBytes, objectName, contentType);
-        String gcsUrl = gcsStorageService.publicUrl(objectName);
 
         Song song = Song.builder()
                 .title(title)
                 .artist(artist)
-                .filePath(objectName)
-                .gcsUrl(gcsUrl)
                 .build();
         song = songRepository.save(song);
 

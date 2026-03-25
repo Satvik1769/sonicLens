@@ -9,4 +9,11 @@ public class SpotifyConfig {
     private String clientId;
     private String clientSecret;
     private String redirectUri;
+    private Premium premium = new Premium();
+
+    @Data
+    public static class Premium {
+        private String username;
+        private String password;
+    }
 }
