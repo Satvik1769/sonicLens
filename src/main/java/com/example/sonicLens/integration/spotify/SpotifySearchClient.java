@@ -85,6 +85,117 @@ public class SpotifySearchClient {
     }
 
     // -------------------------------------------------------------------------
+    // Fetch all tracks of a Spotify album (handles pagination)
+    // -------------------------------------------------------------------------
+
+    public List<SpotifyTrackDto> getAlbumTracks(String albumId) {
+        try {
+            // Get album metadata (name + art) first
+            ResponseEntity<Map<String, Object>> albumResponse = restTemplate.exchange(
+                    "https://api.spotify.com/v1/albums/{id}",
+                    HttpMethod.GET,
+                    authHeaders(),
+                    MAP_TYPE,
+                    albumId
+            );
+            Map<String, Object> albumBody = albumResponse.getBody();
+            if (albumBody == null) return List.of();
+
+            String albumName = (String) albumBody.get("name");
+            List<Map<String, Object>> albumImages = asList(albumBody.get("images"));
+            String albumArtUrl = (albumImages != null && !albumImages.isEmpty())
+                    ? (String) albumImages.get(0).get("url") : null;
+
+            // Page through tracks (max 50 per request)
+            List<SpotifyTrackDto> allTracks = new ArrayList<>();
+            int offset = 0;
+            final int limit = 50;
+
+            while (true) {
+                ResponseEntity<Map<String, Object>> tracksResponse = restTemplate.exchange(
+                        "https://api.spotify.com/v1/albums/{id}/tracks?limit={limit}&offset={offset}",
+                        HttpMethod.GET,
+                        authHeaders(),
+                        MAP_TYPE,
+                        albumId, limit, offset
+                );
+                Map<String, Object> tracksBody = tracksResponse.getBody();
+                if (tracksBody == null) break;
+
+                List<Map<String, Object>> items = asList(tracksBody.get("items"));
+                if (items == null || items.isEmpty()) break;
+
+                for (Map<String, Object> track : items) {
+                    try {
+                        List<Map<String, Object>> artists = asList(track.get("artists"));
+                        String artistName = (artists != null && !artists.isEmpty())
+                                ? (String) artists.get(0).get("name") : null;
+
+                        allTracks.add(new SpotifyTrackDto(
+                                (String) track.get("id"),
+                                (String) track.get("name"),
+                                artistName,
+                                albumName,
+                                albumArtUrl,
+                                (String) track.get("preview_url"),
+                                (Integer) track.get("duration_ms")
+                        ));
+                    } catch (Exception ignored) {}
+                }
+
+                offset += items.size();
+                Object total = tracksBody.get("total");
+                if (total == null || offset >= (Integer) total) break;
+            }
+
+            return allTracks;
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Parse a Spotify track/album URL or URI into (type, id)
+    // Supports:
+    //   https://open.spotify.com/track/{id}
+    //   https://open.spotify.com/album/{id}
+    //   spotify:track:{id}
+    //   spotify:album:{id}
+    // -------------------------------------------------------------------------
+
+    public record SpotifyUrlParsed(String type, String id) {}
+
+    public SpotifyUrlParsed parseSpotifyUrl(String url) {
+        String trimmed = url.trim();
+
+        // Spotify URI: spotify:track:xxx or spotify:album:xxx
+        if (trimmed.startsWith("spotify:")) {
+            String[] parts = trimmed.split(":");
+            if (parts.length >= 3 && (parts[1].equals("track") || parts[1].equals("album"))) {
+                return new SpotifyUrlParsed(parts[1], parts[2]);
+            }
+        }
+
+        // HTTP URL: https://open.spotify.com/track/{id}?si=...
+        try {
+            java.net.URI uri = java.net.URI.create(trimmed);
+            String[] segments = uri.getPath().split("/");
+            // segments: ["", "track"/"album", "{id}"]
+            if (segments.length >= 3) {
+                String type = segments[1];
+                String id   = segments[2];
+                if ((type.equals("track") || type.equals("album")) && !id.isBlank()) {
+                    return new SpotifyUrlParsed(type, id);
+                }
+            }
+        } catch (Exception ignored) {}
+
+        throw new IllegalArgumentException(
+                "Invalid Spotify URL. Provide a track or album link, e.g. " +
+                "https://open.spotify.com/track/{id} or https://open.spotify.com/album/{id}");
+    }
+
+    // -------------------------------------------------------------------------
     // Download the 30-second preview MP3 from its URL (no auth needed)
     // -------------------------------------------------------------------------
 

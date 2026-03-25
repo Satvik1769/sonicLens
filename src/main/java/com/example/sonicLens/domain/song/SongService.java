@@ -13,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.ByteArrayInputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -74,6 +75,60 @@ public class SongService {
         }
 
         return song;
+    }
+
+    // -------------------------------------------------------------------------
+    // Add songs from a Spotify URL — supports both track and album URLs.
+    // Always returns a list (single-element for tracks, multi for albums).
+    // Tracks with no 30s preview are silently skipped (cannot be fingerprinted).
+    // Already-catalogued tracks are included in the result without re-processing.
+    // -------------------------------------------------------------------------
+
+    public List<Song> addFromSpotifyUrl(String url) throws Exception {
+        SpotifySearchClient.SpotifyUrlParsed parsed = spotifySearchClient.parseSpotifyUrl(url);
+
+        List<SpotifyTrackDto> tracks = switch (parsed.type()) {
+            case "track" -> {
+                SpotifyTrackDto dto = spotifySearchClient.getTrack(parsed.id())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                                "Spotify track not found: " + parsed.id()));
+                yield List.of(dto);
+            }
+            case "album" -> {
+                List<SpotifyTrackDto> albumTracks = spotifySearchClient.getAlbumTracks(parsed.id());
+                if (albumTracks.isEmpty()) {
+                    throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                            "No tracks found for album: " + parsed.id());
+                }
+                yield albumTracks;
+            }
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "URL must point to a Spotify track or album");
+        };
+
+        List<Song> result = new ArrayList<>();
+        for (SpotifyTrackDto dto : tracks) {
+            // Already in catalog — include without re-fingerprinting
+            Optional<Song> existing = songRepository.findBySpotifyTrackId(dto.spotifyId());
+            if (existing.isPresent()) {
+                result.add(existing.get());
+                continue;
+            }
+
+            // Skip tracks that have no preview (cannot fingerprint without audio)
+            if (dto.previewUrl() == null) continue;
+
+            try {
+                result.add(addFromSpotify(dto.spotifyId()));
+            } catch (ResponseStatusException e) {
+                if (e.getStatusCode() == HttpStatus.CONFLICT) {
+                    songRepository.findBySpotifyTrackId(dto.spotifyId()).ifPresent(result::add);
+                }
+                // other errors (e.g. download failure) — skip track
+            }
+        }
+
+        return result;
     }
 
     // -------------------------------------------------------------------------

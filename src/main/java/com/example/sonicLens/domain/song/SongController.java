@@ -28,6 +28,24 @@ public class SongController {
     }
 
     /**
+     * Add songs from a Spotify URL (track or album).
+     * - Track URL  → fingerprints and stores that one song.
+     * - Album URL  → fingerprints every track in the album that has a preview.
+     * Returns the list of songs added (or already present in the catalog).
+     * Tracks with no Spotify 30s preview are silently skipped.
+     *
+     * Body: { "url": "https://open.spotify.com/album/..." }
+     *       { "url": "https://open.spotify.com/track/..." }
+     *       { "url": "spotify:album:..." }
+     *       { "url": "spotify:track:..." }
+     */
+    @PostMapping("/add-url")
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<Song> addFromUrl(@RequestBody AddFromUrlRequest req) throws Exception {
+        return songService.addFromSpotifyUrl(req.url());
+    }
+
+    /**
      * Search the Spotify catalog. Returns up to 10 candidates.
      * Use the spotifyTrackId from results to call POST /songs/add.
      * Example: GET /songs/search?q=Bohemian+Rhapsody+Queen
@@ -60,4 +78,5 @@ public class SongController {
     }
 
     public record AddFromSpotifyRequest(String spotifyTrackId) {}
+    public record AddFromUrlRequest(String url) {}
 }
