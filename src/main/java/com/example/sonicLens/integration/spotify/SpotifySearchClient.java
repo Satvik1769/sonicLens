@@ -2,8 +2,9 @@ package com.example.sonicLens.integration.spotify;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.*;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 import java.util.Map;
@@ -15,7 +16,7 @@ public class SpotifySearchClient {
 
     private final SpotifyAuthClient authClient;
 
-    private final RestClient restClient = RestClient.create("https://api.spotify.com");
+    private final RestTemplate restTemplate = new RestTemplate();
 
     private static final ParameterizedTypeReference<Map<String, Object>> MAP_TYPE =
             new ParameterizedTypeReference<>() {};
@@ -25,13 +26,22 @@ public class SpotifySearchClient {
             String token = authClient.getAccessToken();
             String query = "track:" + title + " artist:" + artist;
 
-            Map<String, Object> response = restClient.get()
-                    .uri("/v1/search?q={q}&type=track&limit=1", query)
-                    .header("Authorization", "Bearer " + token)
-                    .retrieve()
-                    .body(MAP_TYPE);
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", "Bearer " + token);
+            HttpEntity<Void> request = new HttpEntity<>(headers);
 
-            Map<String, Object> tracks = asMap(response.get("tracks"));
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    "https://api.spotify.com/v1/search?q={q}&type=track&limit=1",
+                    HttpMethod.GET,
+                    request,
+                    MAP_TYPE,
+                    query
+            );
+
+            Map<String, Object> body = response.getBody();
+            if (body == null) return Optional.empty();
+
+            Map<String, Object> tracks = asMap(body.get("tracks"));
             List<Map<String, Object>> items = asList(tracks.get("items"));
 
             if (items == null || items.isEmpty()) return Optional.empty();

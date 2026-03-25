@@ -3,9 +3,9 @@ package com.example.sonicLens.integration.spotify;
 import com.example.sonicLens.config.SpotifyConfig;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.MediaType;
+import org.springframework.http.*;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
 import java.util.Base64;
@@ -17,7 +17,7 @@ public class SpotifyAuthClient {
 
     private final SpotifyConfig config;
 
-    private final RestClient restClient = RestClient.create("https://accounts.spotify.com");
+    private final RestTemplate restTemplate = new RestTemplate();
 
     private static final ParameterizedTypeReference<Map<String, Object>> MAP_TYPE =
             new ParameterizedTypeReference<>() {};
@@ -40,16 +40,22 @@ public class SpotifyAuthClient {
         String credentials = Base64.getEncoder().encodeToString(
                 (config.getClientId() + ":" + config.getClientSecret()).getBytes());
 
-        Map<String, Object> response = restClient.post()
-                .uri("/api/token")
-                .header("Authorization", "Basic " + credentials)
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body("grant_type=client_credentials")
-                .retrieve()
-                .body(MAP_TYPE);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        headers.set("Authorization", "Basic " + credentials);
 
-        cachedToken = (String) response.get("access_token");
-        int expiresIn = (Integer) response.get("expires_in");
+        HttpEntity<String> request = new HttpEntity<>("grant_type=client_credentials", headers);
+
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                "https://accounts.spotify.com/api/token",
+                HttpMethod.POST,
+                request,
+                MAP_TYPE
+        );
+
+        Map<String, Object> body = response.getBody();
+        cachedToken = (String) body.get("access_token");
+        int expiresIn = (Integer) body.get("expires_in");
         tokenExpiry = Instant.now().plusSeconds(expiresIn);
 
         return cachedToken;
