@@ -29,6 +29,7 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/callback").permitAll()
                         .requestMatchers(HttpMethod.GET, "/songs", "/songs/**").permitAll()
                         .anyRequest().authenticated()
                 )

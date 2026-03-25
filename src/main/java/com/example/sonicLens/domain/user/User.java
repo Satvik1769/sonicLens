@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -26,6 +27,15 @@ public class User {
 
     @Column(nullable = false)
     private String password;
+
+    @Column(name = "spotify_access_token")
+    private String spotifyAccessToken;
+
+    @Column(name = "spotify_refresh_token")
+    private String spotifyRefreshToken;
+
+    @Column(name = "spotify_token_expiry")
+    private Instant spotifyTokenExpiry;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
