@@ -10,13 +10,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 
 	librespot "github.com/devgianlu/go-librespot"
+	"github.com/devgianlu/go-librespot/audio"
 	"github.com/devgianlu/go-librespot/player"
 	"github.com/devgianlu/go-librespot/session"
+	connectpb "github.com/devgianlu/go-librespot/proto/spotify/connectstate"
 	devicespb "github.com/devgianlu/go-librespot/proto/spotify/connectstate/devices"
+	metadatapb "github.com/devgianlu/go-librespot/proto/spotify/metadata"
 )
 
 const (
@@ -61,6 +65,31 @@ func (l stdLogger) WithField(string, interface{}) librespot.Logger { return l }
 func (l stdLogger) WithError(error) librespot.Logger               { return l }
 
 var logger librespot.Logger = stdLogger{}
+
+// ---------------------------------------------------------------------------
+// No-op EventManager — session.Events() is always nil without daemon state;
+// passing nil to the player causes a nil-deref inside NewStream.
+// ---------------------------------------------------------------------------
+
+type nullEvents struct{}
+
+func (nullEvents) PreStreamLoadNew([]byte, librespot.SpotifyId, int64)                               {}
+func (nullEvents) PostStreamResolveAudioFile([]byte, int32, *librespot.Media, *metadatapb.AudioFile) {}
+func (nullEvents) PostStreamRequestAudioKey([]byte)                                                  {}
+func (nullEvents) PostStreamResolveStorage([]byte)                                                   {}
+func (nullEvents) PostStreamInitHttpChunkReader([]byte, *audio.HttpChunkedReader)                    {}
+func (nullEvents) OnPrimaryStreamUnload(*player.Stream, int64)                                       {}
+func (nullEvents) PostPrimaryStreamLoad(*player.Stream, bool)                                        {}
+func (nullEvents) OnPlayerPlay(*player.Stream, string, bool, *connectpb.PlayOrigin, *connectpb.ProvidedTrack, int64) {
+}
+func (nullEvents) OnPlayerResume(*player.Stream, int64)  {}
+func (nullEvents) OnPlayerPause(*player.Stream, string, bool, *connectpb.PlayOrigin, *connectpb.ProvidedTrack, int64) {
+}
+func (nullEvents) OnPlayerSeek(*player.Stream, int64, int64)     {}
+func (nullEvents) OnPlayerSkipForward(*player.Stream, int64, bool) {}
+func (nullEvents) OnPlayerSkipBackward(*player.Stream, int64)    {}
+func (nullEvents) OnPlayerEnd(*player.Stream, int64)             {}
+func (nullEvents) Close()                                        {}
 
 // ---------------------------------------------------------------------------
 // Credentials persistence
@@ -118,7 +147,7 @@ func connect() error {
 	var creds any
 	if stored := loadSavedCredentials(); stored != nil {
 		log.Printf("loading stored credentials for %s", stored.Username)
-		creds = stored
+		creds = *stored // value type — session switch matches StoredCredentials, not *StoredCredentials
 	} else {
 		log.Printf("no stored credentials — starting OAuth login (callback on port %d)", oauthPort)
 		creds = session.InteractiveCredentials{CallbackPort: oauthPort}
@@ -138,11 +167,13 @@ func connect() error {
 
 	saveCredentials(newSess.Username(), newSess.StoredCredentials())
 
+	countryCode := ""
 	p, err := player.NewPlayer(&player.Options{
 		Log:                  logger,
 		Spclient:             newSess.Spclient(),
 		AudioKey:             newSess.AudioKey(),
-		Events:               newSess.Events(),
+		Events:               nullEvents{},
+		CountryCode:          &countryCode,
 		NormalisationEnabled: false,
 	})
 	if err != nil {
@@ -181,12 +212,20 @@ func handleReconnect(w http.ResponseWriter, _ *http.Request) {
 }
 
 func handleStream(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("[PANIC] handleStream: %v\n%s", rec, debug.Stack())
+			http.Error(w, fmt.Sprintf("internal panic: %v", rec), http.StatusInternalServerError)
+		}
+	}()
+
 	if !isReady.Load() {
 		http.Error(w, "librespot session not ready", http.StatusServiceUnavailable)
 		return
 	}
 
 	trackId := r.PathValue("trackId")
+	log.Printf("stream request for track %s", trackId)
 
 	spotId, err := librespot.SpotifyIdFromBase62(librespot.SpotifyIdTypeTrack, trackId)
 	if err != nil {
@@ -200,9 +239,11 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 
 	stream, err := p.NewStream(r.Context(), &http.Client{}, *spotId, streamBitrate, 0)
 	if err != nil {
+		log.Printf("NewStream error for track %s: %v", trackId, err)
 		http.Error(w, "failed to load track: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	log.Printf("stream opened for track %s", trackId)
 
 	// Drain all float32 PCM samples from go-librespot (stereo, 44100 Hz).
 	buf := make([]float32, 8192)
@@ -217,6 +258,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		}
 		if readErr != nil {
 			if len(allSamples) == 0 {
+				log.Printf("audio read error for track %s: %v", trackId, readErr)
 				http.Error(w, "audio read error: "+readErr.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -224,6 +266,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	log.Printf("track %s: read %d samples, writing WAV", trackId, len(allSamples))
 
 	w.Header().Set("Content-Type", "audio/wav")
 	if err := writeWAV(w, allSamples); err != nil {
@@ -237,60 +280,39 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 
 func writeWAV(w io.Writer, samples []float32) error {
 	dataSize := uint32(len(samples) * 2) // 16-bit = 2 bytes per sample
-
 	le := binary.LittleEndian
-	write := func(v any) error { return binary.Write(w, le, v) }
-	writeTag := func(tag string) error { _, err := io.WriteString(w, tag); return err }
 
-	// RIFF header
-	if err := writeTag("RIFF"); err != nil {
-		return err
-	}
-	if err := write(uint32(36 + dataSize)); err != nil {
-		return err
-	}
-	if err := writeTag("WAVE"); err != nil {
-		return err
-	}
-
-	// fmt chunk
-	if err := writeTag("fmt "); err != nil {
-		return err
-	}
-	for _, v := range []any{
-		uint32(16),              // chunk size
-		uint16(1),               // PCM
-		uint16(channels),        // channel count
-		uint32(sampleRate),      // sample rate
-		uint32(sampleRate * channels * 2), // byte rate
-		uint16(channels * 2),    // block align
-		uint16(16),              // bits per sample
-	} {
-		if err := write(v); err != nil {
-			return err
-		}
-	}
-
-	// data chunk
-	if err := writeTag("data"); err != nil {
-		return err
-	}
-	if err := write(dataSize); err != nil {
+	// Build the 44-byte WAV header in one shot.
+	var hdr [44]byte
+	copy(hdr[0:], "RIFF")
+	le.PutUint32(hdr[4:], 36+dataSize)
+	copy(hdr[8:], "WAVE")
+	copy(hdr[12:], "fmt ")
+	le.PutUint32(hdr[16:], 16)                          // fmt chunk size
+	le.PutUint16(hdr[20:], 1)                           // PCM
+	le.PutUint16(hdr[22:], uint16(channels))
+	le.PutUint32(hdr[24:], uint32(sampleRate))
+	le.PutUint32(hdr[28:], uint32(sampleRate*channels*2)) // byte rate
+	le.PutUint16(hdr[32:], uint16(channels*2))          // block align
+	le.PutUint16(hdr[34:], 16)                          // bits per sample
+	copy(hdr[36:], "data")
+	le.PutUint32(hdr[40:], dataSize)
+	if _, err := w.Write(hdr[:]); err != nil {
 		return err
 	}
 
-	// float32 → int16 PCM
-	for _, s := range samples {
+	// Convert float32 → int16 into a pre-allocated byte slice, write once.
+	pcm := make([]byte, len(samples)*2)
+	for i, s := range samples {
 		if s > 1.0 {
 			s = 1.0
 		} else if s < -1.0 {
 			s = -1.0
 		}
-		if err := write(int16(s * 32767)); err != nil {
-			return err
-		}
+		le.PutUint16(pcm[i*2:], uint16(int16(s*32767)))
 	}
-	return nil
+	_, err := w.Write(pcm)
+	return err
 }
 
 // ---------------------------------------------------------------------------
