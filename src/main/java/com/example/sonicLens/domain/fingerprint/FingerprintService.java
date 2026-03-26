@@ -107,6 +107,8 @@ public class FingerprintService {
         int winnerVotes   = winner.get().getValue();
         double confidence = (double) winnerVotes / clipHashes.size();
 
+        if (confidence < 0.05) return RecognitionResult.noMatch();
+
         Song song = songRepository.findById(songId).orElse(null);
         return RecognitionResult.of(song, confidence);
     }
