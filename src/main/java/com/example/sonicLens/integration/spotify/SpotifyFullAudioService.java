@@ -59,6 +59,7 @@ public class SpotifyFullAudioService {
         int status = conn.getResponseCode();
         if (status != 200) {
             String body = new String(conn.getErrorStream().readAllBytes());
+            log.error("librespot service returned HTTP {}: {}", status, body);
             throw new RuntimeException("librespot service returned HTTP " + status + ": " + body);
         }
         return conn.getInputStream();

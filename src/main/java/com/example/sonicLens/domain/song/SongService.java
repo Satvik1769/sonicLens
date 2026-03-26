@@ -5,6 +5,7 @@ import com.example.sonicLens.integration.spotify.SpotifyFullAudioService;
 import com.example.sonicLens.integration.spotify.SpotifySearchClient;
 import com.example.sonicLens.integration.spotify.SpotifyTrackDto;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SongService {
@@ -63,6 +65,8 @@ public class SongService {
                 .releaseDate(dto.releaseDate())
                 .build();
         song = songRepository.save(song);
+
+        log.error("Song added: {}", song);
 
         // Stream directly from Spotify into the fingerprinter — no buffering, no GCS upload
         try (InputStream audioStream = spotifyFullAudioService.streamTrack(spotifyTrackId)) {
