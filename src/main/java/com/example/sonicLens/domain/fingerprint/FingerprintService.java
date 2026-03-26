@@ -14,7 +14,6 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.io.InputStream;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -74,10 +73,12 @@ public class FingerprintService {
         }
     }
 
+    private static final int HASH_BATCH_SIZE = 1000;
+
     public RecognitionResult recognize(InputStream clipStream) throws Exception {
-        float[] samples  = audioDecoder.decodeToMono(clipStream);
-        double[][] spec  = buildSpectrogram(samples);
-        List<long[]> peaks     = detectPeaks(spec);
+        float[] samples     = audioDecoder.decodeToMono(clipStream);
+        double[][] spec     = buildSpectrogram(samples);
+        List<long[]> peaks  = detectPeaks(spec);
         List<long[]> clipHashes = generateHashes(peaks);
 
         if (clipHashes.isEmpty()) {
@@ -85,28 +86,31 @@ public class FingerprintService {
                     "No fingerprints extracted from audio clip");
         }
 
-        List<Long> hashValues = clipHashes.stream()
-                .map(h -> h[0])
-                .distinct()
-                .collect(Collectors.toList());
-
-        List<Fingerprint> matches = fingerprintRepository.findAllByHashIn(hashValues);
-        if (matches.isEmpty()) return RecognitionResult.noMatch();
-
-        // Build clip hash → anchor frame lookup (first occurrence wins)
+        // Build clip hash → anchor frame lookup (first occurrence wins, also deduplicates)
         Map<Long, Integer> clipHashToFrame = new HashMap<>();
         for (long[] h : clipHashes) {
             clipHashToFrame.putIfAbsent(h[0], (int) h[1]);
         }
 
+        // Batch IN queries — avoids huge single IN clause and limits JDBC result-set size per round-trip
+        List<Long> hashValues = new ArrayList<>(clipHashToFrame.keySet());
+        List<FingerprintMatch> matches = new ArrayList<>();
+        for (int i = 0; i < hashValues.size(); i += HASH_BATCH_SIZE) {
+            List<Long> batch = hashValues.subList(i, Math.min(i + HASH_BATCH_SIZE, hashValues.size()));
+            matches.addAll(fingerprintRepository.findMatchesByHashIn(batch));
+        }
+
+        if (matches.isEmpty()) return RecognitionResult.noMatch();
+
         // Vote by time-alignment delta: delta = clipFrame - dbTimeOffset
         // All correct matches from the same song share the same constant delta.
+        // Projections give us song_id directly — no lazy-load round-trips.
         Map<String, Integer> votes = new HashMap<>();
-        for (Fingerprint fp : matches) {
+        for (FingerprintMatch fp : matches) {
             Integer clipFrame = clipHashToFrame.get(fp.getHash());
             if (clipFrame == null) continue;
             int delta = clipFrame - fp.getTimeOffset();
-            String key = fp.getSong().getId() + ":" + delta;
+            String key = fp.getSongId() + ":" + delta;
             votes.merge(key, 1, Integer::sum);
         }
 
