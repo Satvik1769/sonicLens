@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.io.InputStream;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -21,6 +23,11 @@ public class FingerprintService {
     private final AudioDecoder audioDecoder;
     private final FingerprintRepository fingerprintRepository;
     private final SongRepository songRepository;
+
+    @PersistenceContext
+    private EntityManager em;
+
+    private static final int FLUSH_BATCH = 500;
 
     // FFT parameters
     private static final int SAMPLE_RATE = 11025;
@@ -49,15 +56,22 @@ public class FingerprintService {
         List<long[]> peaks  = detectPeaks(spec);
         List<long[]> hashes = generateHashes(peaks);
 
-        List<Fingerprint> fps = hashes.stream()
-                .map(h -> Fingerprint.builder()
-                        .hash(h[0])
-                        .song(song)
-                        .timeOffset((int) h[1])
-                        .build())
-                .collect(Collectors.toList());
-
-        fingerprintRepository.saveAll(fps);
+        int count = 0;
+        for (long[] h : hashes) {
+            Fingerprint fp = Fingerprint.builder()
+                    .hash(h[0])
+                    .song(song)
+                    .timeOffset((int) h[1])
+                    .build();
+            em.persist(fp);
+            if (++count % FLUSH_BATCH == 0) {
+                em.flush();
+                em.clear();
+            }
+        }
+        if (count % FLUSH_BATCH != 0) {
+            em.flush();
+        }
     }
 
     public RecognitionResult recognize(InputStream clipStream) throws Exception {
