@@ -124,9 +124,12 @@ public class SongService {
 
         switch (strategy) {
             case FEATURED_PLAYLISTS -> {
-                List<String> playlistIds = spotifySearchClient.getFeaturedPlaylistIds(limit);
-                for (String pid : playlistIds) {
-                    allTracks.addAll(spotifySearchClient.getPlaylistTracks(pid));
+                // Spotify restricted playlist-tracks to user OAuth; client-credentials can't access them.
+                // Fall back to searching popular queries to approximate "featured" content.
+                List<String> queries = List.of("top hits", "pop hits", "trending");
+                int perQuery = Math.max(1, limit / queries.size());
+                for (String q : queries) {
+                    allTracks.addAll(spotifySearchClient.searchTracks(q, perQuery));
                 }
             }
             case NEW_RELEASES -> {

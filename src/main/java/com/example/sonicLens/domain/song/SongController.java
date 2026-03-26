@@ -90,7 +90,7 @@ public class SongController {
         return songService.listAll();
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/get/{id}")
     public Song get(@PathVariable Long id) {
         return songService.getById(id);
     }

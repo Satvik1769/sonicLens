@@ -252,13 +252,14 @@ public class SpotifySearchClient {
     }
 
     // -------------------------------------------------------------------------
-    // Returns playlist IDs from Spotify's featured playlists
+    // Returns playlist IDs — uses search since /browse/featured-playlists
+    // was removed by Spotify in May 2024 (returns 403).
     // -------------------------------------------------------------------------
 
     public List<String> getFeaturedPlaylistIds(int limit) {
         try {
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    "https://api.spotify.com/v1/browse/featured-playlists?limit={limit}",
+                    "https://api.spotify.com/v1/search?q=top+hits&type=playlist&limit={limit}",
                     HttpMethod.GET,
                     authHeaders(),
                     MAP_TYPE,
@@ -272,6 +273,7 @@ public class SpotifySearchClient {
             if (items == null) return List.of();
 
             return items.stream()
+                    .filter(p -> p != null)
                     .map(p -> (String) p.get("id"))
                     .filter(id -> id != null)
                     .toList();
