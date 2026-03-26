@@ -1,6 +1,7 @@
 package com.example.sonicLens.integration.spotify;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import java.util.Optional;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class SpotifySearchClient {
 
     private final SpotifyAuthClient authClient;
@@ -78,7 +80,10 @@ public class SpotifySearchClient {
                     trackId
             );
             Map<String, Object> body = response.getBody();
-            return body == null ? Optional.empty() : toDto(body);
+
+            log.error("This is the body " + body.toString());
+
+            return toDto(body);
         } catch (Exception e) {
             return Optional.empty();
         }

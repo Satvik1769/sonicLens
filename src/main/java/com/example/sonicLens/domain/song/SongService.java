@@ -35,6 +35,7 @@ public class SongService {
 
     @Transactional
     public Song addFromSpotify(String spotifyTrackId) throws Exception {
+        log.error("Adding song from Spotify: {}", spotifyTrackId);
         // Prevent duplicate entries
         songRepository.findBySpotifyTrackId(spotifyTrackId).ifPresent(existing -> {
             throw new ResponseStatusException(HttpStatus.CONFLICT,

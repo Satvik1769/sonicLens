@@ -34,6 +34,7 @@ public class SpotifyFullAudioService {
             String body = new String(conn.getInputStream().readAllBytes());
             return body.contains("\"ready\":true");
         } catch (Exception e) {
+            log.debug("librespot status check failed: {}", e.getMessage());
             return false;
         }
     }
@@ -54,14 +55,17 @@ public class SpotifyFullAudioService {
      */
     public InputStream streamTrack(String spotifyTrackId) throws Exception {
         HttpURLConnection conn = openConnection("/stream/" + spotifyTrackId, "GET");
+        log.info("streaming track {}", spotifyTrackId);
         conn.setConnectTimeout(10_000);
         conn.setReadTimeout(300_000); // full track may take time to buffer
         int status = conn.getResponseCode();
         if (status != 200) {
-            String body = new String(conn.getErrorStream().readAllBytes());
+            var es = conn.getErrorStream();
+            String body = es != null ? new String(es.readAllBytes()) : "(no error body)";
             log.error("librespot service returned HTTP {}: {}", status, body);
             throw new RuntimeException("librespot service returned HTTP " + status + ": " + body);
         }
+        log.error("librespot success  service returned HTTP {}: {}", status, conn.getResponseMessage());
         return conn.getInputStream();
     }
 
