@@ -114,7 +114,7 @@ public class SongService {
                     "URL must point to a Spotify track, album, or playlist");
         };
 
-        return processTrackDtos(tracks);
+        return processTrackDtos(tracks,0);
     }
 
     // -------------------------------------------------------------------------
@@ -125,6 +125,10 @@ public class SongService {
     public enum SeedStrategy { FEATURED_PLAYLISTS, NEW_RELEASES, SEARCH }
 
     public List<Song> seedFromSpotify(SeedStrategy strategy, int limit, String query) throws Exception {
+        return seedFromSpotify(strategy, limit, query, 0);
+    }
+
+    public List<Song> seedFromSpotify(SeedStrategy strategy, int limit, String query, long delayBetweenTracksMs) throws Exception {
         List<SpotifyTrackDto> allTracks = new ArrayList<>();
 
         switch (strategy) {
@@ -152,11 +156,11 @@ public class SongService {
             }
         }
 
-        return processTrackDtos(allTracks);
+        return processTrackDtos(allTracks, delayBetweenTracksMs);
     }
 
-    // Shared inner loop: skip duplicates, skip no-preview, fingerprint each track.
-    private List<Song> processTrackDtos(List<SpotifyTrackDto> dtos) throws Exception {
+    // Shared inner loop: skip duplicates, fingerprint each track, optional delay between each.
+    private List<Song> processTrackDtos(List<SpotifyTrackDto> dtos, long delayBetweenTracksMs) throws Exception {
         List<Song> result = new ArrayList<>();
         for (SpotifyTrackDto dto : dtos) {
             Optional<Song> existing = songRepository.findBySpotifyTrackId(dto.spotifyId());
@@ -169,6 +173,14 @@ public class SongService {
             } catch (ResponseStatusException e) {
                 if (e.getStatusCode() == HttpStatus.CONFLICT) {
                     songRepository.findBySpotifyTrackId(dto.spotifyId()).ifPresent(result::add);
+                }
+            }
+            if (delayBetweenTracksMs > 0) {
+                try {
+                    Thread.sleep(delayBetweenTracksMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
                 }
             }
         }
