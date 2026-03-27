@@ -11,16 +11,17 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 
 	librespot "github.com/devgianlu/go-librespot"
 	"github.com/devgianlu/go-librespot/audio"
 	"github.com/devgianlu/go-librespot/player"
-	"github.com/devgianlu/go-librespot/session"
 	connectpb "github.com/devgianlu/go-librespot/proto/spotify/connectstate"
 	devicespb "github.com/devgianlu/go-librespot/proto/spotify/connectstate/devices"
 	metadatapb "github.com/devgianlu/go-librespot/proto/spotify/metadata"
+	"github.com/devgianlu/go-librespot/session"
 )
 
 const (
@@ -35,12 +36,12 @@ const (
 )
 
 var (
-	mu          sync.RWMutex
-	sess        *session.Session
-	spotPlayer  *player.Player
-	isReady     atomic.Bool
-	credsDir    = filepath.Join(mustHomeDir(), ".sonicLens", "go-librespot")
-	credsFile   = filepath.Join(credsDir, "credentials.json")
+	mu         sync.RWMutex
+	sess       *session.Session
+	spotPlayer *player.Player
+	isReady    atomic.Bool
+	credsDir   = filepath.Join(mustHomeDir(), ".sonicLens", "go-librespot")
+	credsFile  = filepath.Join(credsDir, "credentials.json")
 )
 
 // ---------------------------------------------------------------------------
@@ -73,23 +74,24 @@ var logger librespot.Logger = stdLogger{}
 
 type nullEvents struct{}
 
-func (nullEvents) PreStreamLoadNew([]byte, librespot.SpotifyId, int64)                               {}
-func (nullEvents) PostStreamResolveAudioFile([]byte, int32, *librespot.Media, *metadatapb.AudioFile) {}
-func (nullEvents) PostStreamRequestAudioKey([]byte)                                                  {}
-func (nullEvents) PostStreamResolveStorage([]byte)                                                   {}
-func (nullEvents) PostStreamInitHttpChunkReader([]byte, *audio.HttpChunkedReader)                    {}
-func (nullEvents) OnPrimaryStreamUnload(*player.Stream, int64)                                       {}
-func (nullEvents) PostPrimaryStreamLoad(*player.Stream, bool)                                        {}
+func (nullEvents) PreStreamLoadNew([]byte, librespot.SpotifyId, int64) {}
+func (nullEvents) PostStreamResolveAudioFile([]byte, int32, *librespot.Media, *metadatapb.AudioFile) {
+}
+func (nullEvents) PostStreamRequestAudioKey([]byte)                               {}
+func (nullEvents) PostStreamResolveStorage([]byte)                                {}
+func (nullEvents) PostStreamInitHttpChunkReader([]byte, *audio.HttpChunkedReader) {}
+func (nullEvents) OnPrimaryStreamUnload(*player.Stream, int64)                    {}
+func (nullEvents) PostPrimaryStreamLoad(*player.Stream, bool)                     {}
 func (nullEvents) OnPlayerPlay(*player.Stream, string, bool, *connectpb.PlayOrigin, *connectpb.ProvidedTrack, int64) {
 }
-func (nullEvents) OnPlayerResume(*player.Stream, int64)  {}
+func (nullEvents) OnPlayerResume(*player.Stream, int64) {}
 func (nullEvents) OnPlayerPause(*player.Stream, string, bool, *connectpb.PlayOrigin, *connectpb.ProvidedTrack, int64) {
 }
-func (nullEvents) OnPlayerSeek(*player.Stream, int64, int64)     {}
+func (nullEvents) OnPlayerSeek(*player.Stream, int64, int64)       {}
 func (nullEvents) OnPlayerSkipForward(*player.Stream, int64, bool) {}
-func (nullEvents) OnPlayerSkipBackward(*player.Stream, int64)    {}
-func (nullEvents) OnPlayerEnd(*player.Stream, int64)             {}
-func (nullEvents) Close()                                        {}
+func (nullEvents) OnPlayerSkipBackward(*player.Stream, int64)      {}
+func (nullEvents) OnPlayerEnd(*player.Stream, int64)               {}
+func (nullEvents) Close()                                          {}
 
 // ---------------------------------------------------------------------------
 // Credentials persistence
@@ -162,7 +164,16 @@ func connect() error {
 
 	newSess, err := session.NewSessionFromOptions(context.Background(), opts)
 	if err != nil {
-		return fmt.Errorf("session creation failed: %w", err)
+		// Stored credentials are stale — delete them and retry with fresh OAuth login.
+		if strings.Contains(err.Error(), "BadCredentials") {
+			log.Printf("stored credentials rejected (BadCredentials) — deleting and retrying with OAuth")
+			_ = os.Remove(credsFile)
+			opts.Credentials = session.InteractiveCredentials{CallbackPort: oauthPort}
+			newSess, err = session.NewSessionFromOptions(context.Background(), opts)
+		}
+		if err != nil {
+			return fmt.Errorf("session creation failed: %w", err)
+		}
 	}
 
 	saveCredentials(newSess.Username(), newSess.StoredCredentials())
@@ -288,13 +299,13 @@ func writeWAV(w io.Writer, samples []float32) error {
 	le.PutUint32(hdr[4:], 36+dataSize)
 	copy(hdr[8:], "WAVE")
 	copy(hdr[12:], "fmt ")
-	le.PutUint32(hdr[16:], 16)                          // fmt chunk size
-	le.PutUint16(hdr[20:], 1)                           // PCM
+	le.PutUint32(hdr[16:], 16) // fmt chunk size
+	le.PutUint16(hdr[20:], 1)  // PCM
 	le.PutUint16(hdr[22:], uint16(channels))
 	le.PutUint32(hdr[24:], uint32(sampleRate))
 	le.PutUint32(hdr[28:], uint32(sampleRate*channels*2)) // byte rate
-	le.PutUint16(hdr[32:], uint16(channels*2))          // block align
-	le.PutUint16(hdr[34:], 16)                          // bits per sample
+	le.PutUint16(hdr[32:], uint16(channels*2))            // block align
+	le.PutUint16(hdr[34:], 16)                            // bits per sample
 	copy(hdr[36:], "data")
 	le.PutUint32(hdr[40:], dataSize)
 	if _, err := w.Write(hdr[:]); err != nil {
