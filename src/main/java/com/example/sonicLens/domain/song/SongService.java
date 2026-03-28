@@ -7,6 +7,7 @@ import com.example.sonicLens.integration.spotify.SpotifyTrackDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -185,6 +186,53 @@ public class SongService {
             }
         }
         return result;
+    }
+
+    // -------------------------------------------------------------------------
+    // Save only track metadata (no audio stream, no fingerprint).
+    // Returns the existing Song if already in catalog.
+    // Used by the trending endpoint for an immediate response while
+    // fingerprinting happens asynchronously in the background.
+    // -------------------------------------------------------------------------
+
+    @Transactional
+    public Song saveMetadataOnly(SpotifyTrackDto dto) {
+        return songRepository.findBySpotifyTrackId(dto.spotifyId()).orElseGet(() -> {
+            Song song = Song.builder()
+                    .title(dto.name())
+                    .artist(dto.artistName())
+                    .album(dto.albumName())
+                    .albumArtUrl(dto.albumArtUrl())
+                    .spotifyTrackId(dto.spotifyId())
+                    .spotifyPreviewUrl(dto.previewUrl())
+                    .spotifyUrl(dto.spotifyUrl())
+                    .durationMs(dto.durationMs())
+                    .trackNumber(dto.trackNumber())
+                    .discNumber(dto.discNumber())
+                    .explicit(dto.explicit())
+                    .isrc(dto.isrc())
+                    .albumSpotifyId(dto.albumSpotifyId())
+                    .albumType(dto.albumType())
+                    .releaseDate(dto.releaseDate())
+                    .build();
+            return songRepository.save(song);
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // Fingerprint a song in the background — used after saveMetadataOnly so
+    // the trending response is returned immediately without blocking on audio.
+    // -------------------------------------------------------------------------
+
+    @Async
+    public void fingerprintInBackground(Song song) {
+        if (song.getSpotifyTrackId() == null) return;
+        try (InputStream audio = spotifyFullAudioService.streamTrack(song.getSpotifyTrackId())) {
+            fingerprintService.fingerprintSong(song, audio);
+            log.info("background fingerprint complete for song {}: {}", song.getId(), song.getTitle());
+        } catch (Exception e) {
+            log.warn("background fingerprint failed for song {}: {}", song.getId(), e.getMessage());
+        }
     }
 
     // -------------------------------------------------------------------------
