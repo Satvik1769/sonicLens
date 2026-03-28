@@ -12,4 +12,8 @@ public interface FingerprintRepository extends JpaRepository<Fingerprint, Long> 
                    "FROM fingerprints f WHERE f.hash IN :hashes",
            nativeQuery = true)
     List<FingerprintMatch> findMatchesByHashIn(@Param("hashes") List<Long> hashes);
+
+    @Query(value = "DELETE FROM fingerprints WHERE song_id = :songId", nativeQuery = true)
+    @org.springframework.data.jpa.repository.Modifying
+    void deleteBySongId(@Param("songId") Long songId);
 }

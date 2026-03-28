@@ -228,6 +228,34 @@ public class SongService {
         return song;
     }
 
+    /**
+     * Re-fingerprint all songs using the current parameters.
+     * Deletes existing fingerprints first, then re-streams each song via the Go service.
+     * Run this after tuning TARGET_ZONE_MAX / TARGET_ZONE_DFREQ / fan-out to shrink the DB.
+     */
+    public List<String> refingerprintAll() {
+        List<Song> songs = songRepository.findAll();
+        List<String> results = new ArrayList<>();
+        for (Song song : songs) {
+            if (song.getSpotifyTrackId() == null) {
+                results.add("SKIP " + song.getId() + " " + song.getTitle() + " — no Spotify track ID");
+                continue;
+            }
+            try {
+                fingerprintService.deleteFingerprintsForSong(song.getId());
+                try (java.io.InputStream audioStream = spotifyFullAudioService.streamTrack(song.getSpotifyTrackId())) {
+                    fingerprintService.fingerprintSong(song, audioStream);
+                }
+                results.add("OK " + song.getId() + " " + song.getTitle());
+                log.info("re-fingerprinted song {}: {}", song.getId(), song.getTitle());
+            } catch (Exception e) {
+                results.add("ERR " + song.getId() + " " + song.getTitle() + " — " + e.getMessage());
+                log.error("failed to re-fingerprint song {}: {}", song.getId(), e.getMessage());
+            }
+        }
+        return results;
+    }
+
     public List<Song> listAll() {
         return songRepository.findAll();
     }

@@ -14,6 +14,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.io.InputStream;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,12 +43,17 @@ public class FingerprintService {
 
     // Target zone for combinatorial hashing
     private static final int TARGET_ZONE_MIN   = 1;
-    private static final int TARGET_ZONE_MAX   = 100;
-    private static final int TARGET_ZONE_DFREQ = 200;
+    private static final int TARGET_ZONE_MAX   = 30;
+    private static final int TARGET_ZONE_DFREQ = 100;
 
     // -------------------------------------------------------------------------
     // Public API
     // -------------------------------------------------------------------------
+
+    @Transactional
+    public void deleteFingerprintsForSong(Long songId) {
+        fingerprintRepository.deleteBySongId(songId);
+    }
 
     @Transactional
     public void fingerprintSong(Song song, InputStream audioStream) throws Exception {
@@ -92,13 +99,25 @@ public class FingerprintService {
             clipHashToFrame.putIfAbsent(h[0], (int) h[1]);
         }
 
-        // Batch IN queries — avoids huge single IN clause and limits JDBC result-set size per round-trip
+        // Subsample to at most 3000 hashes — statistically sufficient for voting
         List<Long> hashValues = new ArrayList<>(clipHashToFrame.keySet());
-        List<FingerprintMatch> matches = new ArrayList<>();
-        for (int i = 0; i < hashValues.size(); i += HASH_BATCH_SIZE) {
-            List<Long> batch = hashValues.subList(i, Math.min(i + HASH_BATCH_SIZE, hashValues.size()));
-            matches.addAll(fingerprintRepository.findMatchesByHashIn(batch));
+        if (hashValues.size() > 3000) {
+            Collections.shuffle(hashValues);
+            hashValues = hashValues.subList(0, 3000);
         }
+
+        // Parallel batch queries — all batches fire at once instead of sequentially
+        List<CompletableFuture<List<FingerprintMatch>>> futures = new ArrayList<>();
+        for (int i = 0; i < hashValues.size(); i += HASH_BATCH_SIZE) {
+            List<Long> batch = List.copyOf(hashValues.subList(i, Math.min(i + HASH_BATCH_SIZE, hashValues.size())));
+            futures.add(CompletableFuture.supplyAsync(
+                    () -> fingerprintRepository.findMatchesByHashIn(batch)
+            ));
+        }
+        List<FingerprintMatch> matches = futures.stream()
+                .map(CompletableFuture::join)
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
 
         if (matches.isEmpty()) return RecognitionResult.noMatch();
 
@@ -222,6 +241,7 @@ public class FingerprintService {
             long anchorFrame = peaks.get(i)[0];
             long anchorBin   = peaks.get(i)[1];
 
+            int fanOut = 0;
             for (int j = i + 1; j < peaks.size(); j++) {
                 long targetFrame = peaks.get(j)[0];
                 long targetBin   = peaks.get(j)[1];
@@ -235,6 +255,7 @@ public class FingerprintService {
 
                 long hash = packHash(anchorBin, targetBin, dt);
                 result.add(new long[]{hash, anchorFrame});
+                if (++fanOut >= 5) break;
             }
         }
         return result;
