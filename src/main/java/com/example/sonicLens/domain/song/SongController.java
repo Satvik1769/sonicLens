@@ -1,12 +1,12 @@
 package com.example.sonicLens.domain.song;
 
-import com.example.sonicLens.integration.spotify.SpotifyTrackDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -51,8 +51,14 @@ public class SongController {
      * Example: GET /songs/search?q=Bohemian+Rhapsody+Queen
      */
     @GetMapping("/search")
-    public List<SpotifyTrackDto> search(@RequestParam String q) {
-        return songService.searchSpotify(q);
+    public List<Song> search(@RequestParam String q) {
+        List<Song> songs = new ArrayList<>();
+        for (var dto : songService.searchSpotify(q)) {
+            Song song = songService.saveMetadataOnly(dto);
+            songs.add(song);
+            songService.fingerprintInBackground(song);
+        }
+        return songs;
     }
 
     /**
