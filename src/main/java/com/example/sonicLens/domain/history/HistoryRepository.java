@@ -9,6 +9,6 @@ import java.util.List;
 
 public interface HistoryRepository extends JpaRepository<RecognitionHistory, Long> {
 
-    @Query(value = "SELECT * FROM recognition_history h  WHERE user_id = :user_id ORDER BY recognized_at DESC", nativeQuery = true)
+    @Query(value = "SELECT * FROM recognition_history h  WHERE user_id = :user_id and confidence > 0 ORDER BY recognized_at DESC", nativeQuery = true)
     List<RecognitionHistory> findByUserWithDetails(@Param("user_id") Long user_id);
 }
