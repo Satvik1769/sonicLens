@@ -53,10 +53,14 @@ public class SongController {
     @GetMapping("/search")
     public List<Song> search(@RequestParam String q) {
         List<Song> songs = new ArrayList<>();
+        List<Song> newSongs = new ArrayList<>();
         for (var dto : songService.searchSpotify(q)) {
-            Song song = songService.saveMetadataOnly(dto);
-            songs.add(song);
-            songService.fingerprintInBackground(song);
+            var result = songService.saveMetadataOnly(dto);
+            songs.add(result.song());
+            if (result.isNew()) newSongs.add(result.song());
+        }
+        if (!newSongs.isEmpty()) {
+            songService.fingerprintInBackground(newSongs);
         }
         return songs;
     }

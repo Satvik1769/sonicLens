@@ -1,5 +1,6 @@
 package com.example.sonicLens.integration.spotify;
 
+import com.example.sonicLens.domain.song.SaveResult;
 import com.example.sonicLens.domain.song.Song;
 import com.example.sonicLens.domain.song.SongService;
 import lombok.RequiredArgsConstructor;
@@ -20,15 +21,14 @@ public class TrendingController {
     private final SongService songService;
 
     /**
-     * Returns trending tracks (as Song DB entities), chart playlists, and new releases.
+     * Returns trending tracks (Song DB entities), chart playlists, and new releases.
      *
-     * For each trending track:
-     *  - Metadata is saved to the songs table immediately (returns existing if already present)
-     *  - Audio fingerprinting is queued asynchronously in the background
+     * All tracks — both from "top hits" search and from each playlist name search —
+     * are saved to the songs table immediately and fingerprinted in one background task.
      *
      * Query params (all optional):
      *   playlistLimit  – chart playlists to return (default 10)
-     *   trackLimit     – trending tracks to return (default 10)
+     *   trackLimit     – tracks per source (default 10)
      *   releaseLimit   – new release albums to return (default 10)
      */
     @GetMapping
@@ -37,19 +37,32 @@ public class TrendingController {
             @RequestParam(defaultValue = "10") int trackLimit,
             @RequestParam(defaultValue = "10") int releaseLimit
     ) {
-        // Fetch from Spotify
         List<SpotifyPlaylistDto> playlists = spotifySearchClient.getToplistPlaylists(playlistLimit);
-        List<SpotifyTrackDto> spotifyTracks = spotifySearchClient.searchTracks("top hits", trackLimit);
         List<SpotifyAlbumDto> newReleases = spotifySearchClient.getNewReleaseAlbums(releaseLimit);
 
-        // Save metadata to DB and queue fingerprinting async for each track
-        List<Song> songs = new ArrayList<>();
-        for (SpotifyTrackDto dto : spotifyTracks) {
-            Song song = songService.saveMetadataOnly(dto);
-            songs.add(song);
-            songService.fingerprintInBackground(song);
+        // Collect all track DTOs: top hits + tracks from each playlist (searched by name)
+        List<SpotifyTrackDto> allDtos = new ArrayList<>(
+                spotifySearchClient.searchTracks("top hits", trackLimit));
+
+        for (SpotifyPlaylistDto playlist : playlists) {
+            allDtos.addAll(spotifySearchClient.searchTracks(playlist.name(), trackLimit));
         }
 
-        return new TrendingResponse(songs, playlists, newReleases);
+        // Save metadata for all tracks immediately, deduplicated by spotifyTrackId
+        List<Song> newSongs = new ArrayList<>();
+        List<Song> allSongs = new ArrayList<>();
+        for (SpotifyTrackDto dto : allDtos) {
+            if (dto.spotifyId() == null) continue;
+            SaveResult result = songService.saveMetadataOnly(dto);
+            allSongs.add(result.song());
+            if (result.isNew()) newSongs.add(result.song());
+        }
+
+        // Single async task — fingerprints sequentially so librespot isn't flooded
+        if (!newSongs.isEmpty()) {
+            songService.fingerprintInBackground(newSongs);
+        }
+
+        return new TrendingResponse(allSongs, playlists, newReleases);
     }
 }

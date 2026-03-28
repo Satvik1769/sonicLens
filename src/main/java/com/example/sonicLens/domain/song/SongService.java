@@ -196,42 +196,45 @@ public class SongService {
     // -------------------------------------------------------------------------
 
     @Transactional
-    public Song saveMetadataOnly(SpotifyTrackDto dto) {
-        return songRepository.findBySpotifyTrackId(dto.spotifyId()).orElseGet(() -> {
-            Song song = Song.builder()
-                    .title(dto.name())
-                    .artist(dto.artistName())
-                    .album(dto.albumName())
-                    .albumArtUrl(dto.albumArtUrl())
-                    .spotifyTrackId(dto.spotifyId())
-                    .spotifyPreviewUrl(dto.previewUrl())
-                    .spotifyUrl(dto.spotifyUrl())
-                    .durationMs(dto.durationMs())
-                    .trackNumber(dto.trackNumber())
-                    .discNumber(dto.discNumber())
-                    .explicit(dto.explicit())
-                    .isrc(dto.isrc())
-                    .albumSpotifyId(dto.albumSpotifyId())
-                    .albumType(dto.albumType())
-                    .releaseDate(dto.releaseDate())
-                    .build();
-            return songRepository.save(song);
-        });
+    public SaveResult saveMetadataOnly(SpotifyTrackDto dto) {
+        Optional<Song> existing = songRepository.findBySpotifyTrackId(dto.spotifyId());
+        if (existing.isPresent()) return new SaveResult(existing.get(), false);
+
+        Song song = Song.builder()
+                .title(dto.name())
+                .artist(dto.artistName())
+                .album(dto.albumName())
+                .albumArtUrl(dto.albumArtUrl())
+                .spotifyTrackId(dto.spotifyId())
+                .spotifyPreviewUrl(dto.previewUrl())
+                .spotifyUrl(dto.spotifyUrl())
+                .durationMs(dto.durationMs())
+                .trackNumber(dto.trackNumber())
+                .discNumber(dto.discNumber())
+                .explicit(dto.explicit())
+                .isrc(dto.isrc())
+                .albumSpotifyId(dto.albumSpotifyId())
+                .albumType(dto.albumType())
+                .releaseDate(dto.releaseDate())
+                .build();
+        return new SaveResult(songRepository.save(song), true);
     }
 
     // -------------------------------------------------------------------------
-    // Fingerprint a song in the background — used after saveMetadataOnly so
-    // the trending response is returned immediately without blocking on audio.
+    // Fingerprint a batch of songs in one background task — processes them
+    // sequentially so librespot is not hit with parallel stream requests.
     // -------------------------------------------------------------------------
 
     @Async
-    public void fingerprintInBackground(Song song) {
-        if (song.getSpotifyTrackId() == null) return;
-        try (InputStream audio = spotifyFullAudioService.streamTrack(song.getSpotifyTrackId())) {
-            fingerprintService.fingerprintSong(song, audio);
-            log.info("background fingerprint complete for song {}: {}", song.getId(), song.getTitle());
-        } catch (Exception e) {
-            log.warn("background fingerprint failed for song {}: {}", song.getId(), e.getMessage());
+    public void fingerprintInBackground(List<Song> songs) {
+        for (Song song : songs) {
+            if (song.getSpotifyTrackId() == null) continue;
+            try (InputStream audio = spotifyFullAudioService.streamTrack(song.getSpotifyTrackId())) {
+                fingerprintService.fingerprintSong(song, audio);
+                log.info("background fingerprint complete: {} - {}", song.getId(), song.getTitle());
+            } catch (Exception e) {
+                log.warn("background fingerprint failed for song {}: {}", song.getId(), e.getMessage());
+            }
         }
     }
 
