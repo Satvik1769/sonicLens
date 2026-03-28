@@ -34,7 +34,7 @@ public class HistoryService {
     public List<RecognitionHistory> getHistory(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
-        return historyRepository.findByUserWithDetails(user);
+        return historyRepository.findByUserWithDetails(user.getId());
     }
 
     @Transactional
