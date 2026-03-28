@@ -15,11 +15,22 @@ import jakarta.persistence.PersistenceContext;
 import java.io.InputStream;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class FingerprintService {
+
+    // Dedicated thread pool for blocking JDBC queries — avoids ForkJoinPool starvation
+    private static final ExecutorService DB_QUERY_POOL = Executors.newFixedThreadPool(10);
+
+    // Songs are immutable once added — cache them to avoid a remote DB round-trip per recognition
+    private final ConcurrentHashMap<Long, Song> songCache = new ConcurrentHashMap<>();
 
     private final AudioDecoder audioDecoder;
     private final FingerprintRepository fingerprintRepository;
@@ -57,6 +68,7 @@ public class FingerprintService {
 
     @Transactional
     public void fingerprintSong(Song song, InputStream audioStream) throws Exception {
+        songCache.put(song.getId(), song);
         float[] samples = audioDecoder.decodeToMono(audioStream);
         double[][] spec  = buildSpectrogram(samples);
         List<long[]> peaks  = detectPeaks(spec);
@@ -83,10 +95,15 @@ public class FingerprintService {
     private static final int HASH_BATCH_SIZE = 1000;
 
     public RecognitionResult recognize(InputStream clipStream) throws Exception {
+        long t0 = System.currentTimeMillis();
+
         float[] samples     = audioDecoder.decodeToMono(clipStream);
         double[][] spec     = buildSpectrogram(samples);
         List<long[]> peaks  = detectPeaks(spec);
         List<long[]> clipHashes = generateHashes(peaks);
+
+        long tFft = System.currentTimeMillis();
+        log.info("[recognize] FFT+peaks+hashes: {}ms, {} hashes", tFft - t0, clipHashes.size());
 
         if (clipHashes.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
@@ -106,18 +123,22 @@ public class FingerprintService {
             hashValues = hashValues.subList(0, 3000);
         }
 
-        // Parallel batch queries — all batches fire at once instead of sequentially
+        // Parallel batch queries on a dedicated I/O pool (not ForkJoinPool — JDBC is blocking)
         List<CompletableFuture<List<FingerprintMatch>>> futures = new ArrayList<>();
         for (int i = 0; i < hashValues.size(); i += HASH_BATCH_SIZE) {
             List<Long> batch = List.copyOf(hashValues.subList(i, Math.min(i + HASH_BATCH_SIZE, hashValues.size())));
             futures.add(CompletableFuture.supplyAsync(
-                    () -> fingerprintRepository.findMatchesByHashIn(batch)
+                    () -> fingerprintRepository.findMatchesByHashIn(batch),
+                    DB_QUERY_POOL
             ));
         }
         List<FingerprintMatch> matches = futures.stream()
                 .map(CompletableFuture::join)
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
+
+        long tDb = System.currentTimeMillis();
+        log.info("[recognize] DB lookup: {}ms, {} batches, {} matches", tDb - tFft, futures.size(), matches.size());
 
         if (matches.isEmpty()) return RecognitionResult.noMatch();
 
@@ -146,7 +167,9 @@ public class FingerprintService {
 
         if (confidence < 0.05) return RecognitionResult.noMatch();
 
-        Song song = songRepository.findById(songId).orElse(null);
+        Song song = songCache.computeIfAbsent(songId,
+                id -> songRepository.findById(id).orElse(null));
+        log.info("[recognize] total: {}ms, confidence: {}", System.currentTimeMillis() - t0, String.format("%.2f", confidence));
         return RecognitionResult.of(song, confidence);
     }
 

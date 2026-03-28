@@ -72,7 +72,7 @@ public class SpotifyScheduler {
      * Daily at 2 AM — pull new releases from Spotify.
      * Skipped if a previous run is still in progress.
      */
-    @Scheduled(cron = "0 0 2 * * *")
+//    @Scheduled(cron = "0 0 2 * * *")
     public void seedNewReleases() {
         if (!newReleasesLock.tryLock()) {
             log.warn("[scheduler] new-releases already running, skipping this trigger");
@@ -94,7 +94,7 @@ public class SpotifyScheduler {
      * Every 6 hours — refresh featured / trending playlists.
      * Skipped if a previous run is still in progress.
      */
-    @Scheduled(cron = "0 0 */6 * * *")
+//    @Scheduled(cron = "0 0 */6 * * *")
     public void seedFeaturedPlaylists() {
         if (!featuredLock.tryLock()) {
             log.warn("[scheduler] featured-playlists already running, skipping this trigger");
@@ -117,7 +117,7 @@ public class SpotifyScheduler {
      * Cycles through all queries (~42 hours) then repeats.
      * Skipped if a previous run is still in progress.
      */
-    @Scheduled(cron = "0 30 * * * *")
+//    @Scheduled(cron = "0 30 * * * *")
     public void seedGenreQuery() {
         if (!genreQueryLock.tryLock()) {
             log.warn("[scheduler] genre-query already running, skipping this trigger");
