@@ -317,6 +317,116 @@ public class SpotifySearchClient {
     }
 
     // -------------------------------------------------------------------------
+    // Fetch chart playlists from the "toplists" category
+    // (Top 50 - Global, Viral 50 - Global, country charts, etc.)
+    // -------------------------------------------------------------------------
+
+    public List<SpotifyPlaylistDto> getToplistPlaylists(int limit) {
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    "https://api.spotify.com/v1/browse/categories/toplists/playlists?limit={limit}",
+                    HttpMethod.GET,
+                    authHeaders(),
+                    MAP_TYPE,
+                    limit
+            );
+            Map<String, Object> body = response.getBody();
+            if (body == null) return List.of();
+
+            Map<String, Object> playlists = asMap(body.get("playlists"));
+            List<Map<String, Object>> items = playlists != null ? asList(playlists.get("items")) : null;
+            if (items == null) return List.of();
+
+            List<SpotifyPlaylistDto> result = new ArrayList<>();
+            for (Map<String, Object> p : items) {
+                if (p == null) continue;
+                try {
+                    List<Map<String, Object>> images = asList(p.get("images"));
+                    String imageUrl = (images != null && !images.isEmpty())
+                            ? (String) images.get(0).get("url") : null;
+
+                    Map<String, Object> tracks = asMap(p.get("tracks"));
+                    int total = tracks != null ? (Integer) tracks.get("total") : 0;
+
+                    Map<String, Object> externalUrls = asMap(p.get("external_urls"));
+                    String spotifyUrl = externalUrls != null ? (String) externalUrls.get("spotify") : null;
+
+                    Map<String, Object> owner = asMap(p.get("owner"));
+                    String ownerName = owner != null ? (String) owner.get("display_name") : null;
+
+                    result.add(new SpotifyPlaylistDto(
+                            (String) p.get("id"),
+                            (String) p.get("name"),
+                            (String) p.get("description"),
+                            imageUrl,
+                            total,
+                            spotifyUrl,
+                            ownerName
+                    ));
+                } catch (Exception ignored) {}
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to fetch toplist playlists: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Fetch new release albums with full metadata (not just IDs)
+    // -------------------------------------------------------------------------
+
+    public List<SpotifyAlbumDto> getNewReleaseAlbums(int limit) {
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    "https://api.spotify.com/v1/browse/new-releases?limit={limit}",
+                    HttpMethod.GET,
+                    authHeaders(),
+                    MAP_TYPE,
+                    limit
+            );
+            Map<String, Object> body = response.getBody();
+            if (body == null) return List.of();
+
+            Map<String, Object> albums = asMap(body.get("albums"));
+            List<Map<String, Object>> items = albums != null ? asList(albums.get("items")) : null;
+            if (items == null) return List.of();
+
+            List<SpotifyAlbumDto> result = new ArrayList<>();
+            for (Map<String, Object> a : items) {
+                if (a == null) continue;
+                try {
+                    List<Map<String, Object>> artists = asList(a.get("artists"));
+                    String artistName = (artists != null && !artists.isEmpty())
+                            ? (String) artists.get(0).get("name") : null;
+
+                    List<Map<String, Object>> images = asList(a.get("images"));
+                    String imageUrl = (images != null && !images.isEmpty())
+                            ? (String) images.get(0).get("url") : null;
+
+                    Map<String, Object> externalUrls = asMap(a.get("external_urls"));
+                    String spotifyUrl = externalUrls != null ? (String) externalUrls.get("spotify") : null;
+
+                    result.add(new SpotifyAlbumDto(
+                            (String)  a.get("id"),
+                            (String)  a.get("name"),
+                            artistName,
+                            (String)  a.get("album_type"),
+                            (String)  a.get("release_date"),
+                            imageUrl,
+                            a.get("total_tracks") != null ? (Integer) a.get("total_tracks") : 0,
+                            spotifyUrl
+                    ));
+                } catch (Exception ignored) {}
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to fetch new release albums: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Download the 30-second preview MP3 from its URL (no auth needed)
     // -------------------------------------------------------------------------
 
