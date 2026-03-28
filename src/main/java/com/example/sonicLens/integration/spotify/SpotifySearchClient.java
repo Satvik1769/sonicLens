@@ -338,16 +338,24 @@ public class SpotifySearchClient {
             if (items == null) return List.of();
 
             List<SpotifyPlaylistDto> result = new ArrayList<>();
-            for (Map<String, Object> p : items) {
-                if (p == null) continue;
+            for (Object raw : items) {
+                if (!(raw instanceof Map<?, ?> rawMap)) continue;
                 try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> p = (Map<String, Object>) rawMap;
+
                     List<Map<String, Object>> images = asList(p.get("images"));
                     String imageUrl = (images != null && !images.isEmpty())
                             ? (String) images.get(0).get("url") : null;
 
-                    Map<String, Object> tracks = asMap(p.get("tracks"));
-                    int total = tracks != null && tracks.get("total") != null
-                            ? (Integer) tracks.get("total") : 0;
+                    // Spotify search returns track count under "items" key (not "tracks")
+                    // in simplified playlist objects — check both for safety
+                    Map<String, Object> tracksRef = asMap(p.get("tracks"));
+                    if (tracksRef == null) tracksRef = asMap(p.get("items"));
+                    int total = 0;
+                    if (tracksRef != null && tracksRef.get("total") instanceof Number n) {
+                        total = n.intValue();
+                    }
 
                     Map<String, Object> externalUrls = asMap(p.get("external_urls"));
                     String spotifyUrl = externalUrls != null ? (String) externalUrls.get("spotify") : null;
@@ -364,7 +372,9 @@ public class SpotifySearchClient {
                             spotifyUrl,
                             ownerName
                     ));
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    log.warn("Skipping playlist item: {}", e.getMessage());
+                }
             }
             return result;
         } catch (Exception e) {
@@ -409,14 +419,18 @@ public class SpotifySearchClient {
                     Map<String, Object> externalUrls = asMap(a.get("external_urls"));
                     String spotifyUrl = externalUrls != null ? (String) externalUrls.get("spotify") : null;
 
+                    int totalTracks = 0;
+                    if (a.get("total_tracks") instanceof Number n) {
+                        totalTracks = n.intValue();
+                    }
                     result.add(new SpotifyAlbumDto(
-                            (String)  a.get("id"),
-                            (String)  a.get("name"),
+                            (String) a.get("id"),
+                            (String) a.get("name"),
                             artistName,
-                            (String)  a.get("album_type"),
-                            (String)  a.get("release_date"),
+                            (String) a.get("album_type"),
+                            (String) a.get("release_date"),
                             imageUrl,
-                            a.get("total_tracks") != null ? (Integer) a.get("total_tracks") : 0,
+                            totalTracks,
                             spotifyUrl
                     ));
                 } catch (Exception ignored) {}
