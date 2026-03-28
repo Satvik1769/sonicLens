@@ -19,6 +19,19 @@ public class AudioDecoder {
         AudioInputStream ais = AudioSystem.getAudioInputStream(
                 new BufferedInputStream(inputStream));
 
+        // Compressed formats (e.g. MP3 via mp3spi) report MPEG encoding.
+        // AudioSystem cannot convert MPEG → target PCM in one step, so decode
+        // to PCM at the source's native rate/channels first.
+        AudioFormat fmt = ais.getFormat();
+        if (!fmt.getEncoding().equals(AudioFormat.Encoding.PCM_SIGNED)
+                && !fmt.getEncoding().equals(AudioFormat.Encoding.PCM_UNSIGNED)) {
+            float rate     = fmt.getSampleRate() != AudioSystem.NOT_SPECIFIED ? fmt.getSampleRate() : 44100f;
+            int   channels = fmt.getChannels()   != AudioSystem.NOT_SPECIFIED ? fmt.getChannels()   : 2;
+            AudioFormat pcmNative = new AudioFormat(
+                    AudioFormat.Encoding.PCM_SIGNED, rate, 16, channels, channels * 2, rate, false);
+            ais = AudioSystem.getAudioInputStream(pcmNative, ais);
+        }
+
         AudioFormat targetFormat = new AudioFormat(
                 AudioFormat.Encoding.PCM_SIGNED,
                 TARGET_SAMPLE_RATE,
