@@ -30,17 +30,15 @@ public class TrendingController {
     @GetMapping
     public TrendingResponse getTrending(
             @RequestParam(defaultValue = "10") int playlistLimit,
-            @RequestParam(defaultValue = "50") int trackLimit,
+            @RequestParam(defaultValue = "10") int trackLimit,
             @RequestParam(defaultValue = "10") int releaseLimit
     ) {
         List<SpotifyPlaylistDto> playlists = spotifySearchClient.getToplistPlaylists(playlistLimit);
 
-        List<SpotifyTrackDto> tracks = List.of();
-        if (!playlists.isEmpty()) {
-            String topChartId = playlists.get(0).id();
-            List<SpotifyTrackDto> all = spotifySearchClient.getPlaylistTracks(topChartId);
-            tracks = all.size() > trackLimit ? all.subList(0, trackLimit) : all;
-        }
+        // Spotify blocks playlist track fetching for chart playlists via client credentials,
+        // so search directly for top hits — same pattern used by the scheduler.
+        List<SpotifyTrackDto> all = spotifySearchClient.searchTracks("top hits", trackLimit);
+        List<SpotifyTrackDto> tracks = all.size() > trackLimit ? all.subList(0, trackLimit) : all;
 
         List<SpotifyAlbumDto> newReleases = spotifySearchClient.getNewReleaseAlbums(releaseLimit);
 

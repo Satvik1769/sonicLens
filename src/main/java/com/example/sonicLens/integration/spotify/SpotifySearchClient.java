@@ -294,7 +294,7 @@ public class SpotifySearchClient {
     public List<String> getNewReleaseAlbumIds(int limit) {
         try {
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    "https://api.spotify.com/v1/browse/new-releases?limit={limit}",
+                    "https://api.spotify.com/v1/search?q=tag:new&type=album&limit={limit}",
                     HttpMethod.GET,
                     authHeaders(),
                     MAP_TYPE,
@@ -317,14 +317,14 @@ public class SpotifySearchClient {
     }
 
     // -------------------------------------------------------------------------
-    // Fetch chart playlists from the "toplists" category
-    // (Top 50 - Global, Viral 50 - Global, country charts, etc.)
+    // Fetch chart playlists via search (browse/categories was removed by Spotify
+    // in 2024 and returns 403 — same workaround used by getFeaturedPlaylistIds)
     // -------------------------------------------------------------------------
 
     public List<SpotifyPlaylistDto> getToplistPlaylists(int limit) {
         try {
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    "https://api.spotify.com/v1/browse/categories/toplists/playlists?limit={limit}",
+                    "https://api.spotify.com/v1/search?q=top+50+global&type=playlist&limit={limit}",
                     HttpMethod.GET,
                     authHeaders(),
                     MAP_TYPE,
@@ -346,7 +346,8 @@ public class SpotifySearchClient {
                             ? (String) images.get(0).get("url") : null;
 
                     Map<String, Object> tracks = asMap(p.get("tracks"));
-                    int total = tracks != null ? (Integer) tracks.get("total") : 0;
+                    int total = tracks != null && tracks.get("total") != null
+                            ? (Integer) tracks.get("total") : 0;
 
                     Map<String, Object> externalUrls = asMap(p.get("external_urls"));
                     String spotifyUrl = externalUrls != null ? (String) externalUrls.get("spotify") : null;
@@ -373,13 +374,14 @@ public class SpotifySearchClient {
     }
 
     // -------------------------------------------------------------------------
-    // Fetch new release albums with full metadata (not just IDs)
+    // Fetch new release albums via search (browse/new-releases returns 403
+    // with client credentials since Spotify deprecated browse endpoints in 2024)
     // -------------------------------------------------------------------------
 
     public List<SpotifyAlbumDto> getNewReleaseAlbums(int limit) {
         try {
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    "https://api.spotify.com/v1/browse/new-releases?limit={limit}",
+                    "https://api.spotify.com/v1/search?q=tag:new&type=album&limit={limit}",
                     HttpMethod.GET,
                     authHeaders(),
                     MAP_TYPE,
