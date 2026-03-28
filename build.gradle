@@ -30,6 +30,8 @@ dependencies {
 	runtimeOnly    'io.jsonwebtoken:jjwt-impl:0.12.3'
 	runtimeOnly    'io.jsonwebtoken:jjwt-jackson:0.12.3'
 	implementation 'com.github.wendykierp:JTransforms:3.1'
+	// MP3 support for AudioSystem — accepts MP3 uploads, auto-converts to PCM in AudioDecoder
+	implementation 'com.googlecode.soundlibs:mp3spi:1.9.5.4'
 	// Full audio streaming is handled by the librespot-service Go microservice.
 	// See librespot-service/ directory.
 	implementation 'com.google.cloud:google-cloud-storage:2.47.0'
