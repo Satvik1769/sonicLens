@@ -140,11 +140,31 @@ func saveCredentials(username string, data []byte) {
 // Session & player management
 // ---------------------------------------------------------------------------
 
+// isSessionError returns true for errors that indicate a dead/expired session
+// and should trigger a reconnect-and-retry rather than an immediate failure.
+func isSessionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "badcredentials") ||
+		strings.Contains(s, "unauthorized") ||
+		strings.Contains(s, "401") ||
+		strings.Contains(s, "failed retrieving aes key") || // KeyProviderError
+		strings.Contains(s, "accesspoint login failed") // AccesspointLoginError
+}
+
 func connect() error {
 	mu.Lock()
 	defer mu.Unlock()
 
 	isReady.Store(false)
+
+	// Close any existing session to free resources before creating a new one.
+	if sess != nil {
+		sess.Close()
+		sess = nil
+	}
 
 	var creds any
 	if stored := loadSavedCredentials(); stored != nil {
@@ -249,6 +269,19 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	mu.RUnlock()
 
 	stream, err := p.NewStream(r.Context(), &http.Client{}, *spotId, streamBitrate, 0)
+	if err != nil && isSessionError(err) {
+		log.Printf("session error on NewStream for track %s — reconnecting: %v", trackId, err)
+		isReady.Store(false)
+		if reconnErr := connect(); reconnErr != nil {
+			log.Printf("reconnect failed: %v", reconnErr)
+			http.Error(w, "session expired and reconnect failed: "+reconnErr.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		mu.RLock()
+		p = spotPlayer
+		mu.RUnlock()
+		stream, err = p.NewStream(r.Context(), &http.Client{}, *spotId, streamBitrate, 0)
+	}
 	if err != nil {
 		log.Printf("NewStream error for track %s: %v", trackId, err)
 		http.Error(w, "failed to load track: "+err.Error(), http.StatusInternalServerError)
