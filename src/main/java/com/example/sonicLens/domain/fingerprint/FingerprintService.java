@@ -50,11 +50,11 @@ public class FingerprintService {
     private static final int[] BAND_EDGES_HZ = {40, 80, 160, 512, 1024, 2048, 4096};
 
     // Peak detection threshold — filters near-silent frames
-    private static final double PEAK_THRESHOLD = 10.0;
+    private static final double PEAK_THRESHOLD = 5.0;
 
     // Target zone for combinatorial hashing
     private static final int TARGET_ZONE_MIN   = 1;
-    private static final int TARGET_ZONE_MAX   = 30;
+    private static final int TARGET_ZONE_MAX   = 50;
     private static final int TARGET_ZONE_DFREQ = 100;
 
     // -------------------------------------------------------------------------
@@ -163,7 +163,7 @@ public class FingerprintService {
         String[] parts    = winner.get().getKey().split(":");
         Long songId       = Long.parseLong(parts[0]);
         int winnerVotes   = winner.get().getValue();
-        double confidence = (double) winnerVotes / clipHashes.size();
+        double confidence = (double) winnerVotes / clipHashToFrame.size();
 
         if (confidence < 0.05) return RecognitionResult.noMatch();
 
@@ -278,7 +278,7 @@ public class FingerprintService {
 
                 long hash = packHash(anchorBin, targetBin, dt);
                 result.add(new long[]{hash, anchorFrame});
-                if (++fanOut >= 5) break;
+                if (++fanOut >= 10) break;
             }
         }
         return result;
