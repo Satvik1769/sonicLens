@@ -68,6 +68,9 @@ pm2 start "go run ." --name librespot-service
 # For faster restarts, build a binary first
 go build -o librespot-service .
 pm2 start ./librespot-service --name librespot-service
+
+# For first time use 
+ gcloud compute ssh instance-20260322-064722 --zone=us-central1-c -- -L 8889:localhost:8889  
 ```
 
 **Useful pm2 commands:**
