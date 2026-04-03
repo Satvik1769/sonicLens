@@ -75,14 +75,14 @@ public class SpotifyScheduler {
     @Scheduled(cron = "0 0 2 * * *")
     public void seedNewReleases() {
         if (!newReleasesLock.tryLock()) {
-            log.warn("[scheduler] new-releases already running, skipping this trigger");
+            log.error("[scheduler] new-releases already running, skipping this trigger");
             return;
         }
         try {
-            log.info("[scheduler] Starting daily new releases seed");
+            log.error("[scheduler] Starting daily new releases seed");
             List<Song> songs = songService.seedFromSpotify(
                     SongService.SeedStrategy.NEW_RELEASES, 20, null, randomDelay());
-            log.info("[scheduler] New releases: added {} songs", songs.size());
+            log.error("[scheduler] New releases: added {} songs", songs.size());
         } catch (Exception e) {
             log.error("[scheduler] New releases seed failed: {}", e.getMessage(), e);
         } finally {
@@ -97,14 +97,14 @@ public class SpotifyScheduler {
     @Scheduled(cron = "0 0 */6 * * *")
     public void seedFeaturedPlaylists() {
         if (!featuredLock.tryLock()) {
-            log.warn("[scheduler] featured-playlists already running, skipping this trigger");
+            log.error("[scheduler] featured-playlists already running, skipping this trigger");
             return;
         }
         try {
-            log.info("[scheduler] Starting featured playlists seed");
+            log.error("[scheduler] Starting featured playlists seed");
             List<Song> songs = songService.seedFromSpotify(
                     SongService.SeedStrategy.FEATURED_PLAYLISTS, 30, null, randomDelay());
-            log.info("[scheduler] Featured playlists: added {} songs", songs.size());
+            log.error("[scheduler] Featured playlists: added {} songs", songs.size());
         } catch (Exception e) {
             log.error("[scheduler] Featured playlists seed failed: {}", e.getMessage(), e);
         } finally {
@@ -120,16 +120,16 @@ public class SpotifyScheduler {
     @Scheduled(cron = "0 30 * * * *")
     public void seedGenreQuery() {
         if (!genreQueryLock.tryLock()) {
-            log.warn("[scheduler] genre-query already running, skipping this trigger");
+            log.error("[scheduler] genre-query already running, skipping this trigger");
             return;
         }
         int idx = queryIndex.getAndUpdate(i -> (i + 1) % SEARCH_QUERIES.size());
         String query = SEARCH_QUERIES.get(idx);
         try {
-            log.info("[scheduler] Genre query [{}/{}]: '{}'", idx + 1, SEARCH_QUERIES.size(), query);
+            log.error("[scheduler] Genre query [{}/{}]: '{}'", idx + 1, SEARCH_QUERIES.size(), query);
             List<Song> songs = songService.seedFromSpotify(
                     SongService.SeedStrategy.SEARCH, 20, query, randomDelay());
-            log.info("[scheduler] Genre query '{}': added {} songs", query, songs.size());
+            log.error("[scheduler] Genre query '{}': added {} songs", query, songs.size());
         } catch (Exception e) {
             log.error("[scheduler] Genre query '{}' failed: {}", query, e.getMessage(), e);
         } finally {
