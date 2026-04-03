@@ -24,7 +24,7 @@ public class Song {
     private String artist;
     private String album;
 
-    @Column(name = "spotify_track_id", length = 100)
+    @Column(name = "spotify_track_id", length = 100, unique = true)
     private String spotifyTrackId;
 
     @Column(name = "spotify_preview_url")
