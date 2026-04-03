@@ -299,6 +299,10 @@ public class SongService {
                 }
                 results.add("OK " + song.getId() + " " + song.getTitle());
                 log.info("re-fingerprinted song {}: {}", song.getId(), song.getTitle());
+                Thread.sleep(500);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
             } catch (Exception e) {
                 results.add("ERR " + song.getId() + " " + song.getTitle() + " — " + e.getMessage());
                 log.error("failed to re-fingerprint song {}: {}", song.getId(), e.getMessage());
