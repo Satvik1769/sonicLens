@@ -73,6 +73,12 @@ public class SongService {
         // Stream directly from Spotify into the fingerprinter — no buffering, no GCS upload
         try (InputStream audioStream = spotifyFullAudioService.streamTrack(spotifyTrackId)) {
             fingerprintService.fingerprintSong(song, audioStream);
+        } catch (Exception e) {
+            songRepository.delete(song);
+            log.info("Failed to fingerprint song: {} - {}", song.getId(), song.getTitle());
+
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to fingerprint song: " + e.getMessage());
         }
 
         return song;
@@ -233,7 +239,8 @@ public class SongService {
                 fingerprintService.fingerprintSong(song, audio);
                 log.info("background fingerprint complete: {} - {}", song.getId(), song.getTitle());
             } catch (Exception e) {
-                log.warn("background fingerprint failed for song {}: {}", song.getId(), e.getMessage());
+                log.error("background fingerprint failed for song {}: {}", song.getId(), e.getMessage());
+                songRepository.delete(song);
             }
         }
     }
@@ -296,6 +303,9 @@ public class SongService {
                 fingerprintService.deleteFingerprintsForSong(song.getId());
                 try (java.io.InputStream audioStream = spotifyFullAudioService.streamTrack(song.getSpotifyTrackId())) {
                     fingerprintService.fingerprintSong(song, audioStream);
+                } catch (Exception e) {
+                    log.error("refingerprint background fingerprint failed for song {}: {}", song.getId(), e.getMessage());
+                    songRepository.delete(song);
                 }
                 results.add("OK " + song.getId() + " " + song.getTitle());
                 log.info("re-fingerprinted song {}: {}", song.getId(), song.getTitle());
