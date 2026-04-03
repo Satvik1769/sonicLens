@@ -6,6 +6,7 @@ import com.example.sonicLens.integration.spotify.SpotifySearchClient;
 import com.example.sonicLens.integration.spotify.SpotifyTrackDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -66,7 +67,13 @@ public class SongService {
                 .albumType(dto.albumType())
                 .releaseDate(dto.releaseDate())
                 .build();
-        song = songRepository.save(song);
+        try {
+            song = songRepository.save(song);
+        } catch (DataIntegrityViolationException e) {
+            // Lost the race — another thread inserted this track concurrently
+            return songRepository.findBySpotifyTrackId(spotifyTrackId)
+                    .orElseThrow(() -> e);
+        }
 
         log.error("Song added: {}", song);
 
@@ -223,7 +230,13 @@ public class SongService {
                 .albumType(dto.albumType())
                 .releaseDate(dto.releaseDate())
                 .build();
-        return new SaveResult(songRepository.save(song), true);
+        try {
+            return new SaveResult(songRepository.save(song), true);
+        } catch (DataIntegrityViolationException e) {
+            return new SaveResult(
+                    songRepository.findBySpotifyTrackId(dto.spotifyId()).orElseThrow(() -> e),
+                    false);
+        }
     }
 
     // -------------------------------------------------------------------------
