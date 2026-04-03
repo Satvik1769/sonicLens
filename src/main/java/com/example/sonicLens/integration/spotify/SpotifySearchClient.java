@@ -81,8 +81,6 @@ public class SpotifySearchClient {
             );
             Map<String, Object> body = response.getBody();
 
-            log.error("This is the body " + body.toString());
-
             return toDto(body);
         } catch (Exception e) {
             return Optional.empty();
