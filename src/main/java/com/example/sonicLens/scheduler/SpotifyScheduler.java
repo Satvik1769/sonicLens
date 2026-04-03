@@ -128,7 +128,7 @@ public class SpotifyScheduler {
         try {
             log.error("[scheduler] Genre query [{}/{}]: '{}'", idx + 1, SEARCH_QUERIES.size(), query);
             List<Song> songs = songService.seedFromSpotify(
-                    SongService.SeedStrategy.SEARCH, 20, query, randomDelay());
+                    SongService.SeedStrategy.SEARCH, 10, query, randomDelay());
             log.error("[scheduler] Genre query '{}': added {} songs", query, songs.size());
         } catch (Exception e) {
             log.error("[scheduler] Genre query '{}' failed: {}", query, e.getMessage(), e);
